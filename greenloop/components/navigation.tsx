@@ -14,7 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Leaf, Home, Target, Users, Award, BarChart3, Settings, Menu, LogOut, User, Trophy } from "lucide-react"
+import { Leaf, Home, Target, Users, Award, BarChart3, Settings, Menu, LogOut, User, Trophy, Shield } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface NavigationProps {
@@ -26,6 +26,7 @@ interface NavigationProps {
     avatar_url?: string
     points: number
     level: number
+    is_admin?: boolean
   }
 }
 
@@ -153,6 +154,17 @@ export function Navigation({ user }: NavigationProps) {
                   Settings
                 </Link>
               </DropdownMenuItem>
+              {user?.is_admin && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin" className="flex items-center">
+                      <Shield className="mr-2 h-4 w-4" />
+                      Admin Panel
+                    </Link>
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>
                 <LogOut className="mr-2 h-4 w-4" />
@@ -185,6 +197,16 @@ export function Navigation({ user }: NavigationProps) {
                     {item.title}
                   </Link>
                 ))}
+                {user?.is_admin && (
+                  <Link
+                    href="/admin"
+                    onClick={() => setIsOpen(false)}
+                    className="flex items-center gap-2 text-lg font-medium transition-colors hover:text-foreground/80 text-foreground/60"
+                  >
+                    <Shield className="h-5 w-5" />
+                    Admin Panel
+                  </Link>
+                )}
               </nav>
             </SheetContent>
           </Sheet>

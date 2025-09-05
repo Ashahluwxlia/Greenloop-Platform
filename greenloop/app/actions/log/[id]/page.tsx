@@ -10,9 +10,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Target, Award, Leaf, Clock, Camera, CheckCircle, AlertCircle, ArrowLeft } from "lucide-react"
+import { Target, Award, Leaf, Clock, Camera, CheckCircle, AlertCircle, ArrowLeft, X } from "lucide-react"
 import Link from "next/link"
 
 interface ActionLogPageProps {
@@ -25,6 +26,8 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
   const [action, setAction] = useState<any>(null)
   const [user, setUser] = useState<any>(null)
   const [notes, setNotes] = useState("")
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -73,6 +76,64 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
     loadData()
   }, [params.id, router, supabase])
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"))
+
+    if (imageFiles.length !== files.length) {
+      setError("Only image files are allowed")
+      return
+    }
+
+    if (selectedFiles.length + imageFiles.length > 3) {
+      setError("Maximum 3 photos allowed")
+      return
+    }
+
+    setSelectedFiles((prev) => [...prev, ...imageFiles])
+
+    // Create preview URLs
+    imageFiles.forEach((file) => {
+      const url = URL.createObjectURL(file)
+      setPreviewUrls((prev) => [...prev, url])
+    })
+  }
+
+  const removeFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index))
+    URL.revokeObjectURL(previewUrls[index])
+    setPreviewUrls((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // Clean up preview URLs on unmount
+  useEffect(() => {
+    return () => {
+      previewUrls.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [previewUrls])
+
+  const uploadPhotos = async (actionLogId: string) => {
+    if (selectedFiles.length === 0) return []
+
+    const uploadPromises = selectedFiles.map(async (file, index) => {
+      const fileExt = file.name.split(".").pop()
+      const fileName = `${actionLogId}_${index}.${fileExt}`
+      const filePath = `action-photos/${fileName}`
+
+      const { error: uploadError } = await supabase.storage.from("action-photos").upload(filePath, file)
+
+      if (uploadError) throw uploadError
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("action-photos").getPublicUrl(filePath)
+
+      return publicUrl
+    })
+
+    return Promise.all(uploadPromises)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!action || !user) return
@@ -89,6 +150,7 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
         body: JSON.stringify({
           action_id: action.id,
           notes: notes.trim() || null,
+          has_photos: selectedFiles.length > 0,
         }),
       })
 
@@ -96,6 +158,19 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
 
       if (!response.ok) {
         throw new Error(result.error || "Failed to log action")
+      }
+
+      // Upload photos if any were selected
+      if (selectedFiles.length > 0) {
+        try {
+          const photoUrls = await uploadPhotos(result.userAction.id)
+
+          // Update the user action with photo URLs
+          await supabase.from("user_actions").update({ photo_urls: photoUrls }).eq("id", result.userAction.id)
+        } catch (photoError) {
+          console.error("Photo upload failed:", photoError)
+          // Don't fail the entire submission if photo upload fails
+        }
       }
 
       setSuccess(true)
@@ -237,8 +312,8 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
             <Alert>
               <Camera className="h-4 w-4" />
               <AlertDescription>
-                This action requires verification. Please provide detailed notes about how you completed this action. An
-                admin will review your submission.
+                This action requires verification. Please provide detailed notes and photos (if applicable) about how
+                you completed this action. An admin will review your submission.
               </AlertDescription>
             </Alert>
           )}
@@ -267,6 +342,46 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
                     required={action.verification_required}
                     rows={4}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="photos">
+                    Photos (Optional)
+                    <span className="text-sm text-muted-foreground ml-2">Max 3 photos</span>
+                  </Label>
+                  <div className="space-y-4">
+                    <Input
+                      id="photos"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleFileSelect}
+                      className="cursor-pointer"
+                    />
+
+                    {previewUrls.length > 0 && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {previewUrls.map((url, index) => (
+                          <div key={index} className="relative">
+                            <img
+                              src={url || "/placeholder.svg"}
+                              alt={`Preview ${index + 1}`}
+                              className="w-full h-32 object-cover rounded-lg border"
+                            />
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="absolute top-2 right-2 h-6 w-6 p-0"
+                              onClick={() => removeFile(index)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {error && (
