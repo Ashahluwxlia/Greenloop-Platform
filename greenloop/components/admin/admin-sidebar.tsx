@@ -1,0 +1,97 @@
+"use client"
+
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { LayoutDashboard, Users, Trophy, Target, BarChart3, Settings, FileText, Shield, LogOut } from "lucide-react"
+
+const sidebarItems = [
+  {
+    title: "Dashboard",
+    href: "/admin",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "User Management",
+    href: "/admin/users",
+    icon: Users,
+  },
+  {
+    title: "Team Management",
+    href: "/admin/teams",
+    icon: Trophy,
+  },
+  {
+    title: "Challenge Management",
+    href: "/admin/challenges",
+    icon: Target,
+  },
+  {
+    title: "Analytics & Reports",
+    href: "/admin/analytics",
+    icon: BarChart3,
+  },
+  {
+    title: "Content Management",
+    href: "/admin/content",
+    icon: FileText,
+  },
+  {
+    title: "System Settings",
+    href: "/admin/settings",
+    icon: Settings,
+  },
+  {
+    title: "Admin Permissions",
+    href: "/admin/permissions",
+    icon: Shield,
+  },
+]
+
+export function AdminSidebar() {
+  const pathname = usePathname()
+
+  return (
+    <div className="w-64 bg-sidebar border-r border-sidebar-border">
+      <div className="p-6">
+        <div className="flex items-center gap-2 mb-8">
+          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+            <Shield className="h-5 w-5 text-primary-foreground" />
+          </div>
+          <div>
+            <h2 className="font-bold text-sidebar-foreground">GreenLoop</h2>
+            <p className="text-xs text-muted-foreground">Admin Panel</p>
+          </div>
+        </div>
+
+        <nav className="space-y-2">
+          {sidebarItems.map((item) => {
+            const isActive = pathname === item.href
+            return (
+              <Link key={item.href} href={item.href}>
+                <Button
+                  variant={isActive ? "secondary" : "ghost"}
+                  className={cn(
+                    "w-full justify-start gap-3",
+                    isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  {item.title}
+                </Button>
+              </Link>
+            )
+          })}
+        </nav>
+      </div>
+
+      <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-sidebar-border">
+        <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
+          <LogOut className="h-4 w-4" />
+          Sign Out
+        </Button>
+      </div>
+    </div>
+  )
+}
