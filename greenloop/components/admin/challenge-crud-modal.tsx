@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import {
   Dialog,
@@ -62,6 +62,45 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
 
   const { toast } = useToast()
   const supabase = createClient()
+
+  useEffect(() => {
+    if (isOpen) {
+      console.log("[v0] Challenge modal opened with data:", challenge)
+
+      // Format dates properly for date inputs
+      const formatDateForInput = (dateString: string) => {
+        if (!dateString) return new Date().toISOString().split("T")[0]
+        const date = new Date(dateString)
+        return date.toISOString().split("T")[0]
+      }
+
+      setFormData({
+        title: challenge?.title || "",
+        description: challenge?.description || "",
+        category: challenge?.category || "",
+        challenge_type: challenge?.challenge_type || "individual",
+        start_date: challenge?.start_date
+          ? formatDateForInput(challenge.start_date)
+          : new Date().toISOString().split("T")[0],
+        end_date: challenge?.end_date
+          ? formatDateForInput(challenge.end_date)
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        target_metric: challenge?.target_metric || "",
+        target_value: challenge?.target_value || 0,
+        reward_points: challenge?.reward_points || 10,
+        max_participants: challenge?.max_participants || undefined,
+        is_active: challenge?.is_active ?? true,
+      })
+
+      console.log("[v0] Form data set:", {
+        title: challenge?.title,
+        description: challenge?.description,
+        category: challenge?.category,
+        start_date: challenge?.start_date,
+        end_date: challenge?.end_date,
+      })
+    }
+  }, [isOpen, challenge])
 
   const logAdminActivity = async (action: string, targetId: string, details: any) => {
     if (!currentAdminId) return

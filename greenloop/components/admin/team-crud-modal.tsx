@@ -42,15 +42,46 @@ export function TeamCrudModal({ isOpen, onClose, team, onSuccess, currentAdminId
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<any[]>([])
   const [formData, setFormData] = useState<Team>({
-    name: team?.name || "",
-    description: team?.description || "",
-    team_leader_id: team?.team_leader_id || "",
-    max_members: team?.max_members || 10,
-    is_active: team?.is_active ?? true,
+    name: "",
+    description: "",
+    team_leader_id: "",
+    max_members: 10,
+    is_active: true,
   })
 
   const { toast } = useToast()
   const supabase = createClient()
+
+  useEffect(() => {
+    async function loadUsers() {
+      const { data } = await supabase.from("users").select("id, first_name, last_name").eq("is_active", true)
+      setUsers(data || [])
+    }
+    if (isOpen) {
+      loadUsers()
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (team) {
+      setFormData({
+        name: team.name || "",
+        description: team.description || "",
+        team_leader_id: team.team_leader_id || "",
+        max_members: team.max_members || 10,
+        is_active: team.is_active ?? true,
+      })
+    } else {
+      // Reset form for new team creation
+      setFormData({
+        name: "",
+        description: "",
+        team_leader_id: "",
+        max_members: 10,
+        is_active: true,
+      })
+    }
+  }, [team, isOpen])
 
   const logAdminActivity = async (action: string, targetId: string, details: any) => {
     if (!currentAdminId) return
@@ -67,16 +98,6 @@ export function TeamCrudModal({ isOpen, onClose, team, onSuccess, currentAdminId
       console.error("Failed to log admin activity:", error)
     }
   }
-
-  useEffect(() => {
-    async function loadUsers() {
-      const { data } = await supabase.from("users").select("id, first_name, last_name").eq("is_active", true)
-      setUsers(data || [])
-    }
-    if (isOpen) {
-      loadUsers()
-    }
-  }, [isOpen])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

@@ -1,14 +1,7 @@
 "use client"
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
+import type React from "react"
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { MoreHorizontal, Edit, Trash2, Eye, UserPlus, Users, Settings, Ban, CheckCircle, UserMinus } from "lucide-react"
 
@@ -38,152 +31,189 @@ export function ActionDropdown({
   type = "user",
 }: ActionDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [dropdownPosition, setDropdownPosition] = useState<{
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+  }>({})
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
-  console.log("ActionDropdown rendered", { type, isAdmin, isActive, isOpen })
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [isOpen])
+
+  const toggleDropdown = (event: React.MouseEvent) => {
+    if (isOpen) {
+      setIsOpen(false)
+      return
+    }
+
+    const rect = (event.target as HTMLElement).getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const dropdownWidth = 192 // w-48 = 12rem = 192px
+    const dropdownHeight = 240 // approximate height of dropdown
+
+    const position: { top?: number; bottom?: number; left?: number; right?: number } = {}
+
+    // Position horizontally
+    if (rect.right + dropdownWidth > viewportWidth) {
+      position.right = viewportWidth - rect.left
+    } else {
+      position.left = rect.right
+    }
+
+    // Position vertically
+    if (rect.bottom + dropdownHeight > viewportHeight) {
+      position.bottom = viewportHeight - rect.top
+    } else {
+      position.top = rect.bottom
+    }
+
+    setDropdownPosition(position)
+    setIsOpen(true)
+  }
+
+  const handleMenuItemClick = (action: () => void) => {
+    action()
+    setIsOpen(false)
+  }
 
   return (
-    <DropdownMenu
-      open={isOpen}
-      onOpenChange={(open) => {
-        console.log("Dropdown state changing", { from: isOpen, to: open })
-        setIsOpen(open)
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-10 w-10 p-0 bg-red-100 hover:bg-red-200 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 border-2 border-red-300"
-          onClick={(e) => {
-            console.log("Button clicked directly!", e)
-            console.log("Current isOpen state:", isOpen)
-          }}
-        >
-          <span className="sr-only">Open menu</span>
-          <MoreHorizontal className="h-6 w-6 text-red-600" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-        <DropdownMenuSeparator />
+    <div className="relative" ref={dropdownRef}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 w-8 p-0 hover:bg-gray-100 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+        onClick={toggleDropdown}
+      >
+        <span className="sr-only">Open menu</span>
+        <MoreHorizontal className="h-4 w-4" />
+      </Button>
 
-        {onView && (
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.preventDefault()
-              console.log("View clicked")
-              onView()
-              setIsOpen(false)
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+
+          <div
+            className="fixed w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50"
+            style={{
+              top: dropdownPosition.top,
+              bottom: dropdownPosition.bottom,
+              left: dropdownPosition.left,
+              right: dropdownPosition.right,
             }}
           >
-            <Eye className="h-4 w-4 mr-2" />
-            View Details
-          </DropdownMenuItem>
-        )}
+            <div className="py-1">
+              <div className="px-4 py-2 text-sm font-semibold text-gray-900 border-b border-gray-100">Actions</div>
 
-        {onEdit && (
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.preventDefault()
-              console.log("Edit clicked")
-              onEdit()
-              setIsOpen(false)
-            }}
-          >
-            <Edit className="h-4 w-4 mr-2" />
-            Edit {type === "user" ? "User" : type === "team" ? "Team" : type === "challenge" ? "Challenge" : "Content"}
-          </DropdownMenuItem>
-        )}
+              {onView && (
+                <button
+                  onClick={() => handleMenuItemClick(onView)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  <Eye className="h-4 w-4" />
+                  View Details
+                </button>
+              )}
 
-        {type === "user" && onPromote && (
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.preventDefault()
-              console.log("Promote/Demote clicked", { isAdmin })
-              onPromote()
-              setIsOpen(false)
-            }}
-          >
-            {isAdmin ? (
-              <>
-                <UserMinus className="h-4 w-4 mr-2" />
-                Remove Admin Role
-              </>
-            ) : (
-              <>
-                <UserPlus className="h-4 w-4 mr-2" />
-                Promote to Admin
-              </>
-            )}
-          </DropdownMenuItem>
-        )}
+              {onEdit && (
+                <button
+                  onClick={() => handleMenuItemClick(onEdit)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  <Edit className="h-4 w-4" />
+                  Edit{" "}
+                  {type === "user" ? "User" : type === "team" ? "Team" : type === "challenge" ? "Challenge" : "Content"}
+                </button>
+              )}
 
-        {type === "team" && onManageMembers && (
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.preventDefault()
-              onManageMembers()
-              setIsOpen(false)
-            }}
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Manage Members
-          </DropdownMenuItem>
-        )}
+              {type === "user" && onPromote && (
+                <button
+                  onClick={() => handleMenuItemClick(onPromote)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  {isAdmin ? (
+                    <>
+                      <UserMinus className="h-4 w-4" />
+                      Remove Admin Role
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="h-4 w-4" />
+                      Promote to Admin
+                    </>
+                  )}
+                </button>
+              )}
 
-        {onToggleStatus && (
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.preventDefault()
-              console.log("Toggle status clicked", { isActive })
-              onToggleStatus()
-              setIsOpen(false)
-            }}
-          >
-            {isActive ? (
-              <>
-                <Ban className="h-4 w-4 mr-2" />
-                Deactivate
-              </>
-            ) : (
-              <>
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Activate
-              </>
-            )}
-          </DropdownMenuItem>
-        )}
+              {type === "team" && onManageMembers && (
+                <button
+                  onClick={() => handleMenuItemClick(onManageMembers)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  <Users className="h-4 w-4" />
+                  Manage Members
+                </button>
+              )}
 
-        {onSettings && (
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.preventDefault()
-              onSettings()
-              setIsOpen(false)
-            }}
-          >
-            <Settings className="h-4 w-4 mr-2" />
-            Settings
-          </DropdownMenuItem>
-        )}
+              {onToggleStatus && (
+                <button
+                  onClick={() => handleMenuItemClick(onToggleStatus)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  {isActive ? (
+                    <>
+                      <Ban className="h-4 w-4" />
+                      Deactivate
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4" />
+                      Activate
+                    </>
+                  )}
+                </button>
+              )}
 
-        <DropdownMenuSeparator />
+              {onSettings && (
+                <button
+                  onClick={() => handleMenuItemClick(onSettings)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  <Settings className="h-4 w-4" />
+                  Settings
+                </button>
+              )}
 
-        {onDelete && (
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.preventDefault()
-              console.log("Delete clicked")
-              onDelete()
-              setIsOpen(false)
-            }}
-            className="text-destructive focus:text-destructive"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+              <div className="border-t border-gray-100 my-1"></div>
+
+              {onDelete && (
+                <button
+                  onClick={() => handleMenuItemClick(onDelete)}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   )
 }

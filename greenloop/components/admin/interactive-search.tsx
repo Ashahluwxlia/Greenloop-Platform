@@ -1,19 +1,10 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuCheckboxItem,
-} from "@/components/ui/dropdown-menu"
-import { Search, Filter, X, Download } from "lucide-react"
+import { Search, Filter, X, Download, Check } from "lucide-react"
 
 interface FilterOption {
   key: string
@@ -40,6 +31,8 @@ export function InteractiveSearch({
 }: InteractiveSearchProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({})
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Filter and search data
   const filteredData = useMemo(() => {
@@ -72,6 +65,22 @@ export function InteractiveSearch({
     onFilteredData(filteredData)
   }, [filteredData, onFilteredData])
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsFilterOpen(false)
+      }
+    }
+
+    if (isFilterOpen) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [isFilterOpen])
+
   // Helper function to get nested object values
   function getNestedValue(obj: any, path: string) {
     return path.split(".").reduce((current, key) => current?.[key], obj)
@@ -79,6 +88,7 @@ export function InteractiveSearch({
 
   // Handle filter changes
   const handleFilterChange = (filterKey: string, value: string, checked: boolean) => {
+    console.log("[v0] Filter change:", { filterKey, value, checked })
     setActiveFilters((prev) => {
       const currentValues = prev[filterKey] || []
       if (checked) {
@@ -91,8 +101,15 @@ export function InteractiveSearch({
 
   // Clear all filters
   const clearFilters = () => {
+    console.log("[v0] Clearing all filters")
     setActiveFilters({})
     setSearchTerm("")
+    setIsFilterOpen(false)
+  }
+
+  const toggleFilterDropdown = () => {
+    console.log("[v0] Toggling filter dropdown:", !isFilterOpen)
+    setIsFilterOpen(!isFilterOpen)
   }
 
   // Get active filter count
@@ -111,51 +128,61 @@ export function InteractiveSearch({
           />
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="relative bg-transparent">
-              <Filter className="h-4 w-4 mr-2" />
-              Filter
-              {activeFilterCount > 0 && (
-                <Badge variant="secondary" className="ml-2 h-5 w-5 rounded-full p-0 text-xs">
-                  {activeFilterCount}
-                </Badge>
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56">
-            <DropdownMenuLabel>Filter Options</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-
-            {filterOptions.map((option) => (
-              <div key={option.key}>
-                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                  {option.label}
-                </DropdownMenuLabel>
-                {option.values.map((value) => (
-                  <DropdownMenuCheckboxItem
-                    key={value}
-                    checked={activeFilters[option.key]?.includes(value) || false}
-                    onCheckedChange={(checked) => handleFilterChange(option.key, value, checked)}
-                  >
-                    {value}
-                  </DropdownMenuCheckboxItem>
-                ))}
-                <DropdownMenuSeparator />
-              </div>
-            ))}
-
+        <div className="relative" ref={dropdownRef}>
+          <Button variant="outline" className="relative bg-transparent" onClick={toggleFilterDropdown}>
+            <Filter className="h-4 w-4 mr-2" />
+            Filter
             {activeFilterCount > 0 && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={clearFilters}>
-                  <X className="h-4 w-4 mr-2" />
-                  Clear Filters
-                </DropdownMenuItem>
-              </>
+              <Badge variant="secondary" className="ml-2 h-5 w-5 rounded-full p-0 text-xs">
+                {activeFilterCount}
+              </Badge>
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </Button>
+
+          {isFilterOpen && (
+            <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-96 overflow-y-auto">
+              <div className="p-3 border-b border-gray-100">
+                <h4 className="font-medium text-sm">Filter Options</h4>
+              </div>
+
+              {filterOptions.map((option) => (
+                <div key={option.key} className="border-b border-gray-100 last:border-b-0">
+                  <div className="px-3 py-2 bg-gray-50">
+                    <h5 className="text-xs font-medium text-gray-600 uppercase tracking-wide">{option.label}</h5>
+                  </div>
+                  {option.values.map((value) => {
+                    const isChecked = activeFilters[option.key]?.includes(value) || false
+                    return (
+                      <div
+                        key={value}
+                        className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                        onClick={() => handleFilterChange(option.key, value, !isChecked)}
+                      >
+                        <div className="flex items-center justify-center w-4 h-4 mr-3 border border-gray-300 rounded">
+                          {isChecked && <Check className="h-3 w-3 text-blue-600" />}
+                        </div>
+                        <span className="text-sm">{value}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+
+              {activeFilterCount > 0 && (
+                <>
+                  <div className="border-t border-gray-200" />
+                  <div
+                    className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-red-600"
+                    onClick={clearFilters}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    <span className="text-sm">Clear Filters</span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         {onExport && (
           <Button variant="outline" onClick={onExport}>

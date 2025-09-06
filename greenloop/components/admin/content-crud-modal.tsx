@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,20 +45,47 @@ interface ContentCrudModalProps {
 
 export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, currentAdminId }: ContentCrudModalProps) {
   const [formData, setFormData] = useState<ContentItem>({
-    title: content?.title || "",
-    content: content?.content || "",
-    type: content?.type || "action",
-    category: content?.category || "",
-    status: content?.status || "draft",
-    points: content?.points || 0,
-    co2_impact: content?.co2_impact || 0,
-    tags: content?.tags || [],
+    title: "",
+    content: "",
+    type: "action",
+    category: "",
+    status: "draft",
+    points: 0,
+    co2_impact: 0,
+    tags: [],
   })
 
   const [newTag, setNewTag] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
+
+  useEffect(() => {
+    if (content) {
+      setFormData({
+        title: content.title || "",
+        content: content.content || "",
+        type: content.type || "action",
+        category: content.category || "",
+        status: content.status || "draft",
+        points: content.points || 0,
+        co2_impact: content.co2_impact || 0,
+        tags: content.tags || [],
+      })
+    } else {
+      // Reset form for new content creation
+      setFormData({
+        title: "",
+        content: "",
+        type: "action",
+        category: "",
+        status: "draft",
+        points: 0,
+        co2_impact: 0,
+        tags: [],
+      })
+    }
+  }, [content, isOpen])
 
   const logAdminActivity = async (action: string, targetId: string, details: any) => {
     if (!currentAdminId) return
