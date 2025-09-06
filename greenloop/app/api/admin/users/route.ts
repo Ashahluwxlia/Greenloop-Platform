@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { type NextRequest, NextResponse } from "next/server"
 
 export async function GET(request: NextRequest) {
@@ -59,35 +60,61 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { email, firstName, lastName, department, isAdmin } = body
+    const { email, firstName, lastName, employeeId, jobTitle, department, isAdmin } = body
 
-    // Create user in auth
-    const { data: authUser, error: authCreateError } = await supabase.auth.admin.createUser({
-      email,
-      password: Math.random().toString(36).slice(-8), // Temporary password
-      email_confirm: true,
-    })
+    console.log("[v0] Creating user with email:", email, "and employee ID:", employeeId)
 
-    if (authCreateError) throw authCreateError
-
-    // Create user profile
-    const { data: newUser, error: profileError } = await supabase
+    const { data: existingProfileByEmail } = await supabase
       .from("users")
-      .insert({
-        id: authUser.user.id,
-        email,
+      .select("id, email")
+      .eq("email", email)
+      .maybeSingle()
+
+    if (existingProfileByEmail) {
+      console.log("[v0] Profile already exists for email:", email)
+      return NextResponse.json({ error: "User with this email already exists" }, { status: 400 })
+    }
+
+    if (employeeId) {
+      const { data: existingProfileByEmployeeId } = await supabase
+        .from("users")
+        .select("id, employee_id")
+        .eq("employee_id", employeeId)
+        .maybeSingle()
+
+      if (existingProfileByEmployeeId) {
+        console.log("[v0] Profile already exists for employee ID:", employeeId)
+        return NextResponse.json({ error: "User with this employee ID already exists" }, { status: 400 })
+      }
+    }
+
+    const adminSupabase = createAdminClient()
+
+    console.log("[v0] Sending invitation to user")
+    const { data: inviteData, error: inviteError } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?type=invite`,
+      data: {
         first_name: firstName,
         last_name: lastName,
+        employee_id: employeeId,
+        job_title: jobTitle,
         department,
         is_admin: isAdmin || false,
-        is_active: true,
-      })
-      .select()
-      .single()
+        invitation: true,
+      },
+    })
 
-    if (profileError) throw profileError
+    if (inviteError) {
+      console.log("[v0] Invitation failed:", inviteError)
+      throw inviteError
+    }
 
-    return NextResponse.json({ user: newUser })
+    console.log("[v0] Invitation sent successfully to:", email)
+
+    return NextResponse.json({
+      message: "User invited successfully. They will receive an email to set up their account.",
+      invitedEmail: email,
+    })
   } catch (error) {
     console.error("Error creating user:", error)
     return NextResponse.json({ error: "Failed to create user" }, { status: 500 })

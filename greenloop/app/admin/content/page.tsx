@@ -13,9 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { FileText, Plus, Calendar, Globe } from "lucide-react"
 
 interface ContentItem {
-  id: string
+  id?: string
   title: string
-  content?: string
+  content: string // Made content required to match modal expectations
   description?: string
   type: "action" | "announcement" | "educational" | "challenge"
   category: string
@@ -25,7 +25,7 @@ interface ContentItem {
   tags: string[]
   is_active?: boolean
   points_value?: number
-  created_at: string
+  created_at?: string
   updated_at?: string
   created_by?: string
 }
@@ -129,46 +129,9 @@ export default function AdminContentPage() {
   }
 
   const handleSaveContent = async (contentData: ContentItem) => {
-    try {
-      if (modalMode === "create") {
-        if (contentData.type === "action") {
-          await supabase.from("sustainability_actions").insert({
-            title: contentData.title,
-            description: contentData.content,
-            category: contentData.category,
-            points_value: contentData.points,
-            co2_impact: contentData.co2_impact,
-            is_active: contentData.status === "published",
-            tags: contentData.tags,
-          })
-        } else {
-          await supabase.from("content_items").insert({
-            ...contentData,
-            created_by: userProfile?.id, // Use current admin's ID
-          })
-        }
-      } else if (modalMode === "edit" && selectedContent) {
-        if (contentData.type === "action") {
-          await supabase
-            .from("sustainability_actions")
-            .update({
-              title: contentData.title,
-              description: contentData.content,
-              category: contentData.category,
-              points_value: contentData.points,
-              co2_impact: contentData.co2_impact,
-              is_active: contentData.status === "published",
-              tags: contentData.tags,
-            })
-            .eq("id", selectedContent.id)
-        } else {
-          await supabase.from("content_items").update(contentData).eq("id", selectedContent.id)
-        }
-      }
-      loadData()
-    } catch (error) {
-      console.error("Error saving content:", error)
-    }
+    // Just refresh the data after modal completes its save operation
+    loadData()
+    setModalOpen(false)
   }
 
   const handleContentAction = async (action: string, content: ContentItem) => {
@@ -229,7 +192,7 @@ export default function AdminContentPage() {
           item.status,
           item.points || 0,
           item.co2_impact || 0,
-          new Date(item.created_at).toLocaleDateString(),
+          item.created_at ? new Date(item.created_at).toLocaleDateString() : "N/A",
         ].join(","),
       ),
     ].join("\n")
@@ -364,7 +327,7 @@ export default function AdminContentPage() {
                           <TableCell>
                             <div className="flex items-center gap-1 text-sm text-muted-foreground">
                               <Calendar className="h-3 w-3" />
-                              {new Date(action.created_at).toLocaleDateString()}
+                              {action.created_at ? new Date(action.created_at).toLocaleDateString() : "N/A"}
                             </div>
                           </TableCell>
                           <TableCell>

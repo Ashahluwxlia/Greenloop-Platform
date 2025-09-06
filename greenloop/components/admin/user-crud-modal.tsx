@@ -18,13 +18,15 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2 } from "lucide-react"
+import { Loader2, Award as IdCard, Briefcase } from "lucide-react"
 
 interface User {
   id?: string
   first_name: string
   last_name: string
   email: string
+  employee_id?: string
+  job_title?: string
   department: string
   is_admin: boolean
   is_active: boolean
@@ -47,6 +49,8 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
     first_name: user?.first_name || "",
     last_name: user?.last_name || "",
     email: user?.email || "",
+    employee_id: user?.employee_id || "",
+    job_title: user?.job_title || "",
     department: user?.department || "",
     is_admin: user?.is_admin || false,
     is_active: user?.is_active ?? true,
@@ -57,6 +61,19 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
 
   const { toast } = useToast()
   const supabase = createClient()
+
+  const departments = [
+    "Human Resources",
+    "Engineering",
+    "Marketing",
+    "Sales",
+    "Finance",
+    "Operations",
+    "Customer Support",
+    "Legal",
+    "IT",
+    "Other",
+  ]
 
   const logAdminActivity = async (action: string, targetId: string, details: any) => {
     if (!currentAdminId) return
@@ -80,13 +97,14 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
 
     try {
       if (user?.id) {
-        // Update existing user
         const { error } = await supabase
           .from("users")
           .update({
             first_name: formData.first_name,
             last_name: formData.last_name,
             email: formData.email,
+            employee_id: formData.employee_id,
+            job_title: formData.job_title,
             department: formData.department,
             is_admin: formData.is_admin,
             is_active: formData.is_active,
@@ -102,6 +120,8 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
             first_name: formData.first_name,
             last_name: formData.last_name,
             email: formData.email,
+            employee_id: formData.employee_id,
+            job_title: formData.job_title,
             department: formData.department,
             is_admin: formData.is_admin,
             is_active: formData.is_active,
@@ -122,6 +142,8 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
             email: formData.email,
             firstName: formData.first_name,
             lastName: formData.last_name,
+            employeeId: formData.employee_id,
+            jobTitle: formData.job_title,
             department: formData.department,
             isAdmin: formData.is_admin,
           }),
@@ -140,6 +162,8 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
               first_name: formData.first_name,
               last_name: formData.last_name,
               email: formData.email,
+              employee_id: formData.employee_id,
+              job_title: formData.job_title,
               department: formData.department,
               is_admin: formData.is_admin,
             },
@@ -148,7 +172,7 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
 
         toast({
           title: "Success",
-          description: "User created successfully",
+          description: "User created successfully. An invitation email has been sent.",
         })
       }
 
@@ -202,7 +226,7 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>{user?.id ? "Edit User" : "Create New User"}</DialogTitle>
           <DialogDescription>
@@ -243,6 +267,37 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="employee_id">Employee ID</Label>
+              <div className="relative">
+                <IdCard className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="employee_id"
+                  placeholder="EMP001"
+                  value={formData.employee_id}
+                  onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })}
+                  className="pl-10"
+                  required={!user?.id}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="job_title">Job Title</Label>
+              <div className="relative">
+                <Briefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="job_title"
+                  placeholder="Software Engineer"
+                  value={formData.job_title}
+                  onChange={(e) => setFormData({ ...formData, job_title: e.target.value })}
+                  className="pl-10"
+                  required={!user?.id}
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="department">Department</Label>
             <Select
@@ -253,12 +308,11 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
                 <SelectValue placeholder="Select department" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Engineering">Engineering</SelectItem>
-                <SelectItem value="Marketing">Marketing</SelectItem>
-                <SelectItem value="Sales">Sales</SelectItem>
-                <SelectItem value="HR">Human Resources</SelectItem>
-                <SelectItem value="Finance">Finance</SelectItem>
-                <SelectItem value="Operations">Operations</SelectItem>
+                {departments.map((dept) => (
+                  <SelectItem key={dept} value={dept}>
+                    {dept}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -312,6 +366,15 @@ export function UserCrudModal({ isOpen, onClose, user, onSuccess, currentAdminId
               onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
             />
           </div>
+
+          {!user?.id && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-sm text-blue-800">
+                <strong>Note:</strong> An invitation email will be sent to the user with instructions to set their
+                password.
+              </p>
+            </div>
+          )}
 
           <DialogFooter className="gap-2">
             {user?.id && (
