@@ -631,25 +631,6 @@ CREATE OR REPLACE VIEW "public"."admin_category_breakdown" AS
 ALTER VIEW "public"."admin_category_breakdown" OWNER TO "postgres";
 
 
-CREATE OR REPLACE VIEW "public"."admin_challenge_stats" AS
-SELECT
-    NULL::"uuid" AS "id",
-    NULL::"text" AS "title",
-    NULL::"text" AS "challenge_type",
-    NULL::"text" AS "target_metric",
-    NULL::integer AS "target_value",
-    NULL::integer AS "reward_points",
-    NULL::timestamp with time zone AS "start_date",
-    NULL::timestamp with time zone AS "end_date",
-    NULL::boolean AS "is_active",
-    NULL::bigint AS "total_participants",
-    NULL::bigint AS "completed_count",
-    NULL::numeric AS "avg_progress";
-
-
-ALTER VIEW "public"."admin_challenge_stats" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "public"."challenge_participants" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "challenge_id" "uuid" NOT NULL,
@@ -687,6 +668,35 @@ CREATE TABLE IF NOT EXISTS "public"."challenges" (
 
 
 ALTER TABLE "public"."challenges" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_challenge_stats" AS
+ SELECT "c"."id",
+    "c"."title",
+    "c"."description",
+    "c"."category",
+    "c"."challenge_type",
+    "c"."target_metric",
+    "c"."target_value",
+    "c"."reward_points",
+    "c"."start_date",
+    "c"."end_date",
+    "c"."is_active",
+    "c"."created_at",
+    "count"("cp"."id") AS "total_participants",
+    "count"(
+        CASE
+            WHEN ("cp"."completed" = true) THEN 1
+            ELSE NULL::integer
+        END) AS "completed_count",
+    "avg"("cp"."current_progress") AS "avg_progress"
+   FROM ("public"."challenges" "c"
+     LEFT JOIN "public"."challenge_participants" "cp" ON (("c"."id" = "cp"."challenge_id")))
+  GROUP BY "c"."id", "c"."title", "c"."description", "c"."category", "c"."challenge_type", "c"."target_metric", "c"."target_value", "c"."reward_points", "c"."start_date", "c"."end_date", "c"."is_active", "c"."created_at"
+  ORDER BY "c"."created_at" DESC;
+
+
+ALTER VIEW "public"."admin_challenge_stats" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."point_transactions" (
@@ -831,7 +841,8 @@ SELECT
     NULL::numeric(10,2) AS "total_co2_saved",
     NULL::integer AS "max_members",
     NULL::bigint AS "current_members",
-    NULL::boolean AS "is_active";
+    NULL::boolean AS "is_active",
+    NULL::timestamp with time zone AS "created_at";
 
 
 ALTER VIEW "public"."admin_team_stats" OWNER TO "postgres";
@@ -1367,29 +1378,6 @@ CREATE OR REPLACE VIEW "public"."admin_user_stats" AS
 
 
 
-CREATE OR REPLACE VIEW "public"."admin_challenge_stats" AS
- SELECT "c"."id",
-    "c"."title",
-    "c"."challenge_type",
-    "c"."target_metric",
-    "c"."target_value",
-    "c"."reward_points",
-    "c"."start_date",
-    "c"."end_date",
-    "c"."is_active",
-    "count"("cp"."id") AS "total_participants",
-    "count"(
-        CASE
-            WHEN ("cp"."completed" = true) THEN 1
-            ELSE NULL::integer
-        END) AS "completed_count",
-    "avg"("cp"."current_progress") AS "avg_progress"
-   FROM ("public"."challenges" "c"
-     LEFT JOIN "public"."challenge_participants" "cp" ON (("c"."id" = "cp"."challenge_id")))
-  GROUP BY "c"."id";
-
-
-
 CREATE OR REPLACE VIEW "public"."admin_team_stats" AS
  SELECT "t"."id",
     "t"."name",
@@ -1400,11 +1388,12 @@ CREATE OR REPLACE VIEW "public"."admin_team_stats" AS
     "t"."total_co2_saved",
     "t"."max_members",
     "count"("tm"."id") AS "current_members",
-    "t"."is_active"
+    "t"."is_active",
+    "t"."created_at"
    FROM (("public"."teams" "t"
      LEFT JOIN "public"."users" "u" ON (("t"."team_leader_id" = "u"."id")))
      LEFT JOIN "public"."team_members" "tm" ON (("t"."id" = "tm"."team_id")))
-  GROUP BY "t"."id", "u"."first_name", "u"."last_name";
+  GROUP BY "t"."id", "u"."first_name", "u"."last_name", "t"."created_at";
 
 
 
@@ -1583,7 +1572,25 @@ CREATE POLICY "action_attachments_select_own" ON "public"."action_attachments" F
 ALTER TABLE "public"."action_categories" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "action_categories_delete_admin" ON "public"."action_categories" FOR DELETE USING (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
+   FROM "public"."admin_permissions"
+  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+
+
+
+CREATE POLICY "action_categories_insert_admin" ON "public"."action_categories" FOR INSERT WITH CHECK (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
+   FROM "public"."admin_permissions"
+  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+
+
+
 CREATE POLICY "action_categories_select_all" ON "public"."action_categories" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
+
+
+
+CREATE POLICY "action_categories_update_admin" ON "public"."action_categories" FOR UPDATE USING (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
+   FROM "public"."admin_permissions"
+  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
 
 
 
@@ -1709,7 +1716,25 @@ CREATE POLICY "point_transactions_select_own" ON "public"."point_transactions" F
 ALTER TABLE "public"."sustainability_actions" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "sustainability_actions_delete_admin" ON "public"."sustainability_actions" FOR DELETE USING (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
+   FROM "public"."admin_permissions"
+  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+
+
+
+CREATE POLICY "sustainability_actions_insert_admin" ON "public"."sustainability_actions" FOR INSERT WITH CHECK (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
+   FROM "public"."admin_permissions"
+  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+
+
+
 CREATE POLICY "sustainability_actions_select_all" ON "public"."sustainability_actions" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
+
+
+
+CREATE POLICY "sustainability_actions_update_admin" ON "public"."sustainability_actions" FOR UPDATE USING (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
+   FROM "public"."admin_permissions"
+  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
 
 
 
@@ -2160,12 +2185,6 @@ GRANT ALL ON TABLE "public"."admin_category_breakdown" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."admin_challenge_stats" TO "anon";
-GRANT ALL ON TABLE "public"."admin_challenge_stats" TO "authenticated";
-GRANT ALL ON TABLE "public"."admin_challenge_stats" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."challenge_participants" TO "anon";
 GRANT ALL ON TABLE "public"."challenge_participants" TO "authenticated";
 GRANT ALL ON TABLE "public"."challenge_participants" TO "service_role";
@@ -2175,6 +2194,12 @@ GRANT ALL ON TABLE "public"."challenge_participants" TO "service_role";
 GRANT ALL ON TABLE "public"."challenges" TO "anon";
 GRANT ALL ON TABLE "public"."challenges" TO "authenticated";
 GRANT ALL ON TABLE "public"."challenges" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_challenge_stats" TO "anon";
+GRANT ALL ON TABLE "public"."admin_challenge_stats" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_challenge_stats" TO "service_role";
 
 
 

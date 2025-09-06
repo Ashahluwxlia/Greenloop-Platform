@@ -63,17 +63,24 @@ export default function AdminContentPage() {
 
       setUserProfile(profile)
 
-      // Get sustainability actions
       const { data: actionsData } = await supabase
         .from("sustainability_actions")
-        .select("*")
+        .select(`
+          *,
+          action_categories!inner(
+            name,
+            description,
+            color
+          )
+        `)
         .order("created_at", { ascending: false })
 
-      // Transform actions data to match ContentItem interface
+      // Transform actions data to match ContentItem interface with resolved category names
       const transformedActions =
         actionsData?.map((action) => ({
           ...action,
           type: "action" as const,
+          category: action.action_categories?.name || "Unknown", // Use resolved category name
           status: action.is_active ? ("published" as const) : ("draft" as const),
           points: action.points_value,
           tags: action.tags || [],
@@ -144,12 +151,25 @@ export default function AdminContentPage() {
         break
       case "toggle-status":
         if (content.type === "action") {
-          await supabase
-            .from("sustainability_actions")
-            .update({
+          const response = await fetch(`/api/sustainability-actions/${content.id}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              title: content.title,
+              description: content.description || content.content,
+              category_id: content.category, // This will need to be resolved to ID
+              points_value: content.points || content.points_value,
+              co2_impact: content.co2_impact,
               is_active: !content.is_active,
-            })
-            .eq("id", content.id)
+            }),
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json()
+            console.error("Failed to toggle status:", errorData.error)
+          }
         } else {
           await supabase
             .from("content_items")
@@ -171,7 +191,15 @@ export default function AdminContentPage() {
       case "delete":
         if (confirm(`Are you sure you want to delete "${content.title}"?`)) {
           if (content.type === "action") {
-            await supabase.from("sustainability_actions").delete().eq("id", content.id)
+            const response = await fetch(`/api/sustainability-actions/${content.id}`, {
+              method: "DELETE",
+            })
+
+            if (!response.ok) {
+              const errorData = await response.json()
+              alert(`Failed to delete: ${errorData.error}`)
+              return
+            }
           } else {
             await supabase.from("content_items").delete().eq("id", content.id)
           }

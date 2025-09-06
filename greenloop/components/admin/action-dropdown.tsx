@@ -170,7 +170,7 @@ export function ActionDropdown({
                 </button>
               )}
 
-              {onToggleStatus && (
+              {onToggleStatus && type !== "content" && (
                 <button
                   onClick={() => handleMenuItemClick(onToggleStatus)}
                   className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"

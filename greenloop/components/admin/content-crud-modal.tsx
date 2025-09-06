@@ -32,6 +32,7 @@ interface ContentItem {
   tags: string[]
   created_at?: string
   updated_at?: string
+  description?: string
 }
 
 interface ContentCrudModalProps {
@@ -57,14 +58,31 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
 
   const [newTag, setNewTag] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [availableCategories, setAvailableCategories] = useState<Array<{ id: string; name: string }>>([])
   const { toast } = useToast()
   const supabase = createClient()
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      const { data: categories } = await supabase
+        .from("action_categories")
+        .select("id, name")
+        .eq("is_active", true)
+        .order("name")
+
+      setAvailableCategories(categories || [])
+    }
+
+    if (isOpen) {
+      loadCategories()
+    }
+  }, [isOpen])
 
   useEffect(() => {
     if (content) {
       setFormData({
         title: content.title || "",
-        content: content.content || "",
+        content: content.content || content.description || "",
         type: content.type || "action",
         category: content.category || "",
         status: content.status || "draft",
@@ -73,7 +91,6 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
         tags: content.tags || [],
       })
     } else {
-      // Reset form for new content creation
       setFormData({
         title: "",
         content: "",
@@ -109,22 +126,56 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
 
     try {
       if (content?.id) {
-        // Update existing content
-        const { error } = await supabase
-          .from("content_items")
-          .update({
-            title: formData.title,
-            content: formData.content,
-            type: formData.type,
-            category: formData.category,
-            status: formData.status,
-            points: formData.points,
-            co2_impact: formData.co2_impact,
-            tags: formData.tags,
-          })
-          .eq("id", content.id)
+        if (formData.type === "action") {
+          const selectedCategory = availableCategories.find((cat) => cat.name === formData.category)
+          if (!selectedCategory) {
+            throw new Error("Please select a valid category")
+          }
 
-        if (error) throw error
+          let isActive: boolean
+          if (formData.status === "published") {
+            isActive = true
+          } else {
+            isActive = false // Both draft and archived are inactive
+          }
+
+          const response = await fetch(`/api/sustainability-actions/${content.id}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              title: formData.title,
+              description: formData.content,
+              category_id: selectedCategory.id,
+              points_value: formData.points,
+              co2_impact: formData.co2_impact,
+              is_active: isActive,
+              status: formData.status,
+            }),
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json()
+            throw new Error(errorData.error || "Failed to update sustainability action")
+          }
+        } else {
+          const { error } = await supabase
+            .from("content_items")
+            .update({
+              title: formData.title,
+              content: formData.content,
+              type: formData.type,
+              category: formData.category,
+              status: formData.status,
+              points: formData.points,
+              co2_impact: formData.co2_impact,
+              tags: formData.tags,
+            })
+            .eq("id", content.id)
+
+          if (error) throw error
+        }
 
         await logAdminActivity("content_updated", content.id, {
           title: formData.title,
@@ -141,32 +192,75 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
           throw new Error("Admin ID is required to create content")
         }
 
-        const { data, error } = await supabase
-          .from("content_items")
-          .insert([
-            {
+        if (formData.type === "action") {
+          const selectedCategory = availableCategories.find((cat) => cat.name === formData.category)
+          if (!selectedCategory) {
+            throw new Error("Please select a valid category")
+          }
+
+          let isActive: boolean
+          if (formData.status === "published") {
+            isActive = true
+          } else {
+            isActive = false // Both draft and archived are inactive
+          }
+
+          const response = await fetch("/api/sustainability-actions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
               title: formData.title,
-              content: formData.content,
+              description: formData.content,
+              category_id: selectedCategory.id,
+              points_value: formData.points,
+              co2_impact: formData.co2_impact,
+              is_active: isActive,
+              status: formData.status,
+            }),
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json()
+            throw new Error(errorData.error || "Failed to create sustainability action")
+          }
+
+          const result = await response.json()
+          if (result.data) {
+            await logAdminActivity("sustainability_action_created", result.data.id, {
+              title: formData.title,
+              category: formData.category,
+            })
+          }
+        } else {
+          const { data, error } = await supabase
+            .from("content_items")
+            .insert([
+              {
+                title: formData.title,
+                content: formData.content,
+                type: formData.type,
+                category: formData.category,
+                status: formData.status,
+                points: formData.points,
+                co2_impact: formData.co2_impact,
+                tags: formData.tags,
+                created_by: currentAdminId,
+              },
+            ])
+            .select()
+            .single()
+
+          if (error) throw error
+
+          if (data) {
+            await logAdminActivity("content_created", data.id, {
+              title: formData.title,
               type: formData.type,
               category: formData.category,
-              status: formData.status,
-              points: formData.points,
-              co2_impact: formData.co2_impact,
-              tags: formData.tags,
-              created_by: currentAdminId,
-            },
-          ])
-          .select()
-          .single()
-
-        if (error) throw error
-
-        if (data) {
-          await logAdminActivity("content_created", data.id, {
-            title: formData.title,
-            type: formData.type,
-            category: formData.category,
-          })
+            })
+          }
         }
 
         toast({
@@ -281,12 +375,22 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Energy">Energy</SelectItem>
-                  <SelectItem value="Transportation">Transportation</SelectItem>
-                  <SelectItem value="Waste">Waste</SelectItem>
-                  <SelectItem value="Water">Water</SelectItem>
-                  <SelectItem value="Food">Food</SelectItem>
-                  <SelectItem value="General">General</SelectItem>
+                  {formData.type === "action" ? (
+                    availableCategories.map((category) => (
+                      <SelectItem key={category.id} value={category.name}>
+                        {category.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <>
+                      <SelectItem value="Energy">Energy</SelectItem>
+                      <SelectItem value="Transportation">Transportation</SelectItem>
+                      <SelectItem value="Waste">Waste</SelectItem>
+                      <SelectItem value="Water">Water</SelectItem>
+                      <SelectItem value="Food">Food</SelectItem>
+                      <SelectItem value="General">General</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>

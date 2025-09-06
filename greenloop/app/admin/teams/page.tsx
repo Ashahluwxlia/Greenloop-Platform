@@ -86,7 +86,7 @@ export default function AdminTeamsPage() {
           team.total_points || 0,
           team.total_co2_saved || 0,
           team.is_active ? "Active" : "Inactive",
-          new Date(team.created_at).toLocaleDateString(),
+          team.created_at ? new Date(team.created_at).toLocaleDateString() : "N/A",
         ].join(","),
       ),
     ].join("\n")
@@ -282,7 +282,7 @@ export default function AdminTeamsPage() {
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3" />
-                        {new Date(team.created_at).toLocaleDateString()}
+                        {team.created_at ? new Date(team.created_at).toLocaleDateString() : "N/A"}
                       </div>
                     </TableCell>
                     <TableCell>
