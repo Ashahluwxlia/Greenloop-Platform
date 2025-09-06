@@ -72,6 +72,18 @@ export function Navigation({ user }: NavigationProps) {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
 
+  const getNavigationItems = () => {
+    const items = [...navigationItems]
+    if (user?.is_admin) {
+      items.push({
+        title: "Admin",
+        href: "/admin",
+        icon: Shield,
+      })
+    }
+    return items
+  }
+
   const handleSignOut = async () => {
     // This will be handled by a server action
     const form = document.createElement("form")
@@ -94,13 +106,15 @@ export function Navigation({ user }: NavigationProps) {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6 text-sm font-medium flex-1">
-          {navigationItems.map((item) => (
+          {getNavigationItems().map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
                 "flex items-center gap-2 transition-colors hover:text-foreground/80",
                 pathname === item.href ? "text-foreground" : "text-foreground/60",
+                item.href === "/admin" &&
+                  "text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300",
               )}
             >
               <item.icon className="h-4 w-4" />
@@ -183,7 +197,7 @@ export function Navigation({ user }: NavigationProps) {
             </SheetTrigger>
             <SheetContent side="left" className="w-[300px] sm:w-[400px]">
               <nav className="flex flex-col gap-4">
-                {navigationItems.map((item) => (
+                {getNavigationItems().map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
@@ -191,22 +205,14 @@ export function Navigation({ user }: NavigationProps) {
                     className={cn(
                       "flex items-center gap-2 text-lg font-medium transition-colors hover:text-foreground/80",
                       pathname === item.href ? "text-foreground" : "text-foreground/60",
+                      item.href === "/admin" &&
+                        "text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300",
                     )}
                   >
                     <item.icon className="h-5 w-5" />
                     {item.title}
                   </Link>
                 ))}
-                {user?.is_admin && (
-                  <Link
-                    href="/admin"
-                    onClick={() => setIsOpen(false)}
-                    className="flex items-center gap-2 text-lg font-medium transition-colors hover:text-foreground/80 text-foreground/60"
-                  >
-                    <Shield className="h-5 w-5" />
-                    Admin Panel
-                  </Link>
-                )}
               </nav>
             </SheetContent>
           </Sheet>

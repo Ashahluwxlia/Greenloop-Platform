@@ -2,8 +2,10 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/hooks/use-toast"
 import { LayoutDashboard, Users, Trophy, Target, BarChart3, Settings, FileText, Shield, LogOut } from "lucide-react"
 
 const sidebarItems = [
@@ -51,9 +53,26 @@ const sidebarItems = [
 
 export function AdminSidebar() {
   const pathname = usePathname()
+  const { toast } = useToast()
+  const supabase = createClient()
+
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+
+      window.location.href = "/auth/login"
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to sign out",
+        variant: "destructive",
+      })
+    }
+  }
 
   return (
-    <div className="w-64 bg-sidebar border-r border-sidebar-border">
+    <div className="w-64 bg-sidebar border-r border-sidebar-border relative">
       <div className="p-6">
         <div className="flex items-center gap-2 mb-8">
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
@@ -65,7 +84,7 @@ export function AdminSidebar() {
           </div>
         </div>
 
-        <nav className="space-y-2">
+        <nav className="space-y-2 pb-20">
           {sidebarItems.map((item) => {
             const isActive = pathname === item.href
             return (
@@ -86,8 +105,12 @@ export function AdminSidebar() {
         </nav>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-sidebar-border">
-        <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
+      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-sidebar-border bg-sidebar">
+        <Button
+          variant="outline"
+          className="w-full justify-start gap-3 text-destructive border-destructive/20 hover:bg-destructive hover:text-destructive-foreground bg-transparent"
+          onClick={handleSignOut}
+        >
           <LogOut className="h-4 w-4" />
           Sign Out
         </Button>
