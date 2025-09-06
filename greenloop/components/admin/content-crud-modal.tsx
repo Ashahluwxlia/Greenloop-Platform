@@ -26,7 +26,7 @@ interface ContentItem {
   content: string
   type: "action" | "announcement" | "educational" | "challenge"
   category: string
-  status: "draft" | "published" | "archived"
+  status: "draft" | "published"
   points?: number
   co2_impact?: number
   tags: string[]
@@ -136,7 +136,7 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
           if (formData.status === "published") {
             isActive = true
           } else {
-            isActive = false // Both draft and archived are inactive
+            isActive = false // Only draft is inactive now
           }
 
           const response = await fetch(`/api/sustainability-actions/${content.id}`, {
@@ -202,7 +202,7 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
           if (formData.status === "published") {
             isActive = true
           } else {
-            isActive = false // Both draft and archived are inactive
+            isActive = false // Only draft is inactive now
           }
 
           const response = await fetch("/api/sustainability-actions", {
@@ -407,7 +407,6 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
                 <SelectContent>
                   <SelectItem value="draft">Draft</SelectItem>
                   <SelectItem value="published">Published</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -19,7 +19,7 @@ interface ContentItem {
   description?: string
   type: "action" | "announcement" | "educational" | "challenge"
   category: string
-  status: "draft" | "published" | "archived"
+  status: "draft" | "published" // Removed archived status
   points?: number
   co2_impact?: number
   tags: string[]
@@ -75,12 +75,11 @@ export default function AdminContentPage() {
         `)
         .order("created_at", { ascending: false })
 
-      // Transform actions data to match ContentItem interface with resolved category names
       const transformedActions =
         actionsData?.map((action) => ({
           ...action,
           type: "action" as const,
-          category: action.action_categories?.name || "Unknown", // Use resolved category name
+          category: action.action_categories?.name || "Unknown",
           status: action.is_active ? ("published" as const) : ("draft" as const),
           points: action.points_value,
           tags: action.tags || [],
@@ -151,6 +150,9 @@ export default function AdminContentPage() {
         break
       case "toggle-status":
         if (content.type === "action") {
+          const newStatus = content.status === "published" ? "draft" : "published"
+          const isActive = newStatus === "published"
+
           const response = await fetch(`/api/sustainability-actions/${content.id}`, {
             method: "PUT",
             headers: {
@@ -162,7 +164,7 @@ export default function AdminContentPage() {
               category_id: content.category, // This will need to be resolved to ID
               points_value: content.points || content.points_value,
               co2_impact: content.co2_impact,
-              is_active: !content.is_active,
+              is_active: isActive,
             }),
           })
 
@@ -171,10 +173,11 @@ export default function AdminContentPage() {
             console.error("Failed to toggle status:", errorData.error)
           }
         } else {
+          const newStatus = content.status === "published" ? "draft" : "published"
           await supabase
             .from("content_items")
             .update({
-              status: content.status === "published" ? "draft" : "published",
+              status: newStatus,
             })
             .eq("id", content.id)
         }
@@ -243,7 +246,7 @@ export default function AdminContentPage() {
     {
       key: "status",
       label: "Status",
-      values: ["published", "draft", "archived"],
+      values: ["published", "draft"], // Removed archived from filter options
     },
   ]
 
@@ -347,9 +350,14 @@ export default function AdminContentPage() {
                           </TableCell>
                           <TableCell>
                             <Badge
-                              variant={action.status === "published" || action.is_active ? "default" : "secondary"}
+                              variant={
+                                action.status === "published" || action.is_active ? "default" : "secondary" // Simplified badge logic - only draft or published
+                              }
                             >
-                              {action.status === "published" || action.is_active ? "Published" : "Draft"}
+                              {action.status === "published" || (action.is_active && !action.status)
+                                ? "Published"
+                                : "Draft"}{" "}
+                              {/* Removed archived display */}
                             </Badge>
                           </TableCell>
                           <TableCell>
