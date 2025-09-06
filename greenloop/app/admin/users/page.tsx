@@ -1,17 +1,31 @@
 "use client"
 
+import type React from "react"
+
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { InteractiveSearch } from "@/components/admin/interactive-search"
 import { UserCrudModal } from "@/components/admin/user-crud-modal"
-import { ActionDropdown } from "@/components/admin/action-dropdown"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
-import { Users, Plus, Mail, TrendingUp } from "lucide-react"
+import {
+  Users,
+  Plus,
+  Mail,
+  TrendingUp,
+  MoreHorizontal,
+  Eye,
+  Edit,
+  UserCheck,
+  UserX,
+  Shield,
+  ShieldOff,
+  Trash2,
+} from "lucide-react"
 
 interface User {
   id: string
@@ -31,6 +45,10 @@ interface User {
   total_points?: number
   total_actions?: number
   verified_actions?: number
+  employee_id?: string
+  job_title?: string
+  phone?: string
+  date_joined?: string
 }
 
 export default function AdminUsersPage() {
@@ -40,20 +58,26 @@ export default function AdminUsersPage() {
   const [userProfile, setUserProfile] = useState<any>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [modalMode, setModalMode] = useState<"view" | "edit" | "create">("create")
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const [dropdownPosition, setDropdownPosition] = useState<{
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+  }>({})
 
   const { toast } = useToast()
   const supabase = createClient()
 
   const loadData = async () => {
     try {
-      // Check authentication
       const { data: authData, error: authError } = await supabase.auth.getUser()
       if (authError || !authData?.user) {
         window.location.href = "/auth/login"
         return
       }
 
-      // Check if user is admin
       const { data: profile } = await supabase.from("users").select("*").eq("id", authData.user.id).single()
 
       if (!profile?.is_admin) {
@@ -77,19 +101,32 @@ export default function AdminUsersPage() {
 
       if (usersError) {
         console.error("Error fetching users:", usersError)
-        // Fallback to basic user data if join fails
         const { data: basicUsers } = await supabase.from("users").select("*").order("created_at", { ascending: false })
-
         setUsers(basicUsers || [])
         setFilteredUsers(basicUsers || [])
       } else {
-        const processedUsers = usersData.map((user) => ({
-          ...user,
-          team_name: user.team_members?.[0]?.teams?.name || null,
-          total_points: user.points || 0,
-          total_actions: 0, // Will be calculated from user_actions if needed
-          verified_actions: 0, // Will be calculated from user_actions if needed
-        }))
+        const processedUsers = await Promise.all(
+          usersData.map(async (user) => {
+            const { count: totalActions } = await supabase
+              .from("user_actions")
+              .select("*", { count: "exact", head: true })
+              .eq("user_id", user.id)
+
+            const { count: verifiedActions } = await supabase
+              .from("user_actions")
+              .select("*", { count: "exact", head: true })
+              .eq("user_id", user.id)
+              .eq("is_verified", true)
+
+            return {
+              ...user,
+              team_name: user.team_members?.[0]?.teams?.name || null,
+              total_points: user.points || 0,
+              total_actions: totalActions || 0,
+              verified_actions: verifiedActions || 0,
+            }
+          }),
+        )
 
         setUsers(processedUsers)
         setFilteredUsers(processedUsers)
@@ -147,22 +184,40 @@ export default function AdminUsersPage() {
 
   const handleCreateUser = () => {
     setSelectedUser(null)
+    setModalMode("create")
     setModalOpen(true)
   }
 
-  const handleEditUser = (user: User) => {
-    setSelectedUser(user)
-    setModalOpen(true)
+  const handleViewUser = async (user: User) => {
+    const { data: fullUserData } = await supabase.from("users").select("*").eq("id", user.id).single()
+
+    if (fullUserData) {
+      setSelectedUser({ ...user, ...fullUserData })
+      setModalMode("view")
+      setModalOpen(true)
+    }
+  }
+
+  const handleEditUser = async (user: User) => {
+    const { data: fullUserData } = await supabase.from("users").select("*").eq("id", user.id).single()
+
+    if (fullUserData) {
+      setSelectedUser({ ...user, ...fullUserData })
+      setModalMode("edit")
+      setModalOpen(true)
+    }
   }
 
   const handleUserAction = async (action: string, user: User) => {
+    console.log("[v0] Handling action:", action, "for user:", user.email)
+    setOpenDropdown(null)
+
     switch (action) {
       case "edit":
-        handleEditUser(user)
+        await handleEditUser(user)
         break
       case "view":
-        setSelectedUser(user)
-        setModalOpen(true)
+        await handleViewUser(user)
         break
       case "toggle-status":
         await supabase.from("users").update({ is_active: !user.is_active }).eq("id", user.id)
@@ -226,6 +281,52 @@ export default function AdminUsersPage() {
     loadData()
   }, [])
 
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setOpenDropdown(null)
+    }
+
+    if (openDropdown) {
+      document.addEventListener("click", handleClickOutside)
+      return () => document.removeEventListener("click", handleClickOutside)
+    }
+  }, [openDropdown])
+
+  const toggleDropdown = (userId: string, event?: React.MouseEvent) => {
+    console.log("[v0] Toggling dropdown for user:", userId)
+
+    if (openDropdown === userId) {
+      setOpenDropdown(null)
+      return
+    }
+
+    if (event) {
+      const rect = (event.target as HTMLElement).getBoundingClientRect()
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      const dropdownWidth = 192 // w-48 = 12rem = 192px
+      const dropdownHeight = 240 // approximate height of dropdown
+
+      const position: { top?: number; bottom?: number; left?: number; right?: number } = {}
+
+      if (rect.right + dropdownWidth > viewportWidth) {
+        position.right = viewportWidth - rect.left
+      } else {
+        position.left = rect.right
+      }
+
+      if (rect.bottom + dropdownHeight > viewportHeight) {
+        position.bottom = viewportHeight - rect.top
+      } else {
+        position.top = rect.bottom
+      }
+
+      setDropdownPosition(position)
+    }
+
+    setOpenDropdown(userId)
+  }
+
   if (loading) {
     return (
       <main className="flex-1 p-8">
@@ -237,7 +338,6 @@ export default function AdminUsersPage() {
   return (
     <main className="flex-1 p-8">
       <div className="space-y-8">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
@@ -254,7 +354,6 @@ export default function AdminUsersPage() {
           </Button>
         </div>
 
-        {/* Search and Filters */}
         <Card>
           <CardHeader>
             <CardTitle>Search Users</CardTitle>
@@ -272,7 +371,6 @@ export default function AdminUsersPage() {
           </CardContent>
         </Card>
 
-        {/* Users Table */}
         <Card>
           <CardHeader>
             <CardTitle>All Users ({filteredUsers.length})</CardTitle>
@@ -362,15 +460,89 @@ export default function AdminUsersPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <ActionDropdown
-                        type="user"
-                        onView={() => handleUserAction("view", user)}
-                        onEdit={() => handleUserAction("edit", user)}
-                        onToggleStatus={() => handleUserAction("toggle-status", user)}
-                        onPromote={() => handleUserAction("toggle-admin", user)}
-                        onDelete={() => handleUserAction("delete", user)}
-                        isActive={user.is_active}
-                      />
+                      <div className="relative">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleDropdown(user.id, e)
+                          }}
+                          className="p-2 hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+
+                        {openDropdown === user.id && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
+                            <div
+                              className="fixed w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50"
+                              style={{
+                                top: dropdownPosition.top,
+                                bottom: dropdownPosition.bottom,
+                                left: dropdownPosition.left,
+                                right: dropdownPosition.right,
+                              }}
+                            >
+                              <div className="py-1">
+                                <button
+                                  onClick={() => handleUserAction("view", user)}
+                                  className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                  View Details
+                                </button>
+                                <button
+                                  onClick={() => handleUserAction("edit", user)}
+                                  className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                  Edit User
+                                </button>
+                                <button
+                                  onClick={() => handleUserAction("toggle-status", user)}
+                                  className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                  {user.is_active ? (
+                                    <>
+                                      <UserX className="h-4 w-4" />
+                                      Deactivate User
+                                    </>
+                                  ) : (
+                                    <>
+                                      <UserCheck className="h-4 w-4" />
+                                      Activate User
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handleUserAction("toggle-admin", user)}
+                                  className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                  {user.is_admin ? (
+                                    <>
+                                      <ShieldOff className="h-4 w-4" />
+                                      Remove Admin Role
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Shield className="h-4 w-4" />
+                                      Promote to Admin
+                                    </>
+                                  )}
+                                </button>
+                                <div className="border-t border-gray-100 my-1"></div>
+                                <button
+                                  onClick={() => handleUserAction("delete", user)}
+                                  className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Delete User
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -384,6 +556,7 @@ export default function AdminUsersPage() {
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         user={selectedUser}
+        mode={modalMode}
         onSuccess={loadData}
         currentAdminId={userProfile?.id}
       />
