@@ -364,43 +364,62 @@ ALTER FUNCTION "public"."update_challenge_progress"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_team_stats"() RETURNS "trigger"
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 DECLARE
-  team_id_to_update UUID;
-  calculated_total_points INTEGER;
-  calculated_total_co2 DECIMAL(10,2);
+    team_id_to_update UUID;
+    new_total_points INTEGER;
+    new_total_co2 NUMERIC;
+    new_member_count INTEGER;
 BEGIN
-  -- Get team ID from team_members table
-  IF TG_TABLE_NAME = 'user_actions' THEN
-    SELECT tm.team_id INTO team_id_to_update
-    FROM public.team_members tm
-    WHERE tm.user_id = NEW.user_id;
-  ELSIF TG_TABLE_NAME = 'team_members' THEN
-    team_id_to_update := NEW.team_id;
-  END IF;
+    -- Determine which team to update based on the operation
+    IF TG_OP = 'DELETE' THEN
+        team_id_to_update := OLD.team_id;
+    ELSE
+        team_id_to_update := NEW.team_id;
+    END IF;
 
-  -- Only proceed if user is in a team
-  IF team_id_to_update IS NOT NULL THEN
-    -- Calculate team totals
+    -- Calculate total points and CO2 from team members AND team leader
+    WITH team_contributions AS (
+        -- Get contributions from team members
+        SELECT 
+            u.points,
+            u.total_co2_saved
+        FROM public.users u
+        INNER JOIN public.team_members tm ON u.id = tm.user_id
+        WHERE tm.team_id = team_id_to_update
+        
+        UNION ALL
+        
+        -- Get contributions from team leader
+        SELECT 
+            u.points,
+            u.total_co2_saved
+        FROM public.users u
+        INNER JOIN public.teams t ON u.id = t.team_leader_id  -- Added table prefix to fix ambiguous reference
+        WHERE t.id = team_id_to_update
+    )
     SELECT 
-      COALESCE(SUM(u.points), 0),
-      COALESCE(SUM(u.total_co2_saved), 0)
-    INTO calculated_total_points, calculated_total_co2
-    FROM public.users u
-    INNER JOIN public.team_members tm ON u.id = tm.user_id
+        COALESCE(SUM(points), 0),
+        COALESCE(SUM(total_co2_saved), 0)
+    INTO new_total_points, new_total_co2
+    FROM team_contributions;
+
+    -- Count current members (excluding leader)
+    SELECT COUNT(*)
+    INTO new_member_count
+    FROM public.team_members tm
     WHERE tm.team_id = team_id_to_update;
 
-    -- Update team record with explicit column references
-    UPDATE public.teams
+    -- Update the team totals
+    UPDATE public.teams 
     SET 
-      total_points = calculated_total_points,
-      total_co2_saved = calculated_total_co2,
-      updated_at = NOW()
+        total_points = new_total_points,
+        total_co2_saved = new_total_co2,
+        updated_at = NOW()
     WHERE id = team_id_to_update;
-  END IF;
 
-  RETURN COALESCE(NEW, OLD);
+    RETURN COALESCE(NEW, OLD);
 END;
 $$;
 
@@ -588,7 +607,9 @@ CREATE TABLE IF NOT EXISTS "public"."sustainability_actions" (
     "is_active" boolean DEFAULT true,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "sustainability_actions_difficulty_level_check" CHECK ((("difficulty_level" >= 1) AND ("difficulty_level" <= 5)))
+    "status" "text" DEFAULT 'draft'::"text" NOT NULL,
+    CONSTRAINT "sustainability_actions_difficulty_level_check" CHECK ((("difficulty_level" >= 1) AND ("difficulty_level" <= 5))),
+    CONSTRAINT "sustainability_actions_status_check" CHECK (("status" = ANY (ARRAY['draft'::"text", 'published'::"text", 'archived'::"text"])))
 );
 
 
@@ -830,19 +851,40 @@ CREATE TABLE IF NOT EXISTS "public"."admin_permissions" (
 ALTER TABLE "public"."admin_permissions" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."team_members" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "team_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "role" "text" DEFAULT 'member'::"text",
+    "joined_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "team_members_role_check" CHECK (("role" = ANY (ARRAY['leader'::"text", 'member'::"text"])))
+);
+
+
+ALTER TABLE "public"."team_members" OWNER TO "postgres";
+
+
 CREATE OR REPLACE VIEW "public"."admin_team_stats" AS
-SELECT
-    NULL::"uuid" AS "id",
-    NULL::"text" AS "name",
-    NULL::"text" AS "description",
-    NULL::"uuid" AS "team_leader_id",
-    NULL::"text" AS "leader_name",
-    NULL::integer AS "total_points",
-    NULL::numeric(10,2) AS "total_co2_saved",
-    NULL::integer AS "max_members",
-    NULL::bigint AS "current_members",
-    NULL::boolean AS "is_active",
-    NULL::timestamp with time zone AS "created_at";
+ SELECT "t"."id",
+    "t"."name",
+    "t"."description",
+    "t"."team_leader_id",
+    "t"."max_members",
+    "count"("tm"."id") AS "current_members",
+    "t"."total_points",
+    "t"."total_co2_saved",
+    "t"."is_active",
+    "t"."created_at",
+    "t"."updated_at",
+    "u"."first_name" AS "leader_first_name",
+    "u"."last_name" AS "leader_last_name",
+    "u"."email" AS "leader_email"
+   FROM (("public"."teams" "t"
+     LEFT JOIN "public"."users" "u" ON (("t"."team_leader_id" = "u"."id")))
+     LEFT JOIN "public"."team_members" "tm" ON (("t"."id" = "tm"."team_id")))
+  WHERE ("t"."is_active" = true)
+  GROUP BY "t"."id", "t"."name", "t"."description", "t"."team_leader_id", "t"."max_members", "t"."total_points", "t"."total_co2_saved", "t"."is_active", "t"."created_at", "t"."updated_at", "u"."first_name", "u"."last_name", "u"."email"
+  ORDER BY "t"."created_at" DESC;
 
 
 ALTER VIEW "public"."admin_team_stats" OWNER TO "postgres";
@@ -987,17 +1029,56 @@ CREATE TABLE IF NOT EXISTS "public"."system_settings" (
 ALTER TABLE "public"."system_settings" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."team_members" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "team_id" "uuid" NOT NULL,
-    "user_id" "uuid" NOT NULL,
-    "role" "text" DEFAULT 'member'::"text",
-    "joined_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "team_members_role_check" CHECK (("role" = ANY (ARRAY['leader'::"text", 'member'::"text"])))
-);
+CREATE OR REPLACE VIEW "public"."team_performance_summary" AS
+ WITH "team_user_stats" AS (
+         SELECT "t"."id" AS "team_id",
+            "t"."name" AS "team_name",
+            "u"."id" AS "user_id",
+            "u"."first_name",
+            "u"."last_name",
+            "u"."email",
+            "u"."points",
+            "u"."total_co2_saved",
+            "u"."level",
+            "u"."department",
+            "u"."job_title",
+                CASE
+                    WHEN ("u"."id" = "t"."team_leader_id") THEN true
+                    ELSE false
+                END AS "is_leader",
+            COALESCE("tm"."joined_at", "t"."created_at") AS "joined_at",
+            ( SELECT "count"(*) AS "count"
+                   FROM "public"."user_actions" "ua"
+                  WHERE (("ua"."user_id" = "u"."id") AND ("ua"."verification_status" = 'approved'::"text"))) AS "verified_actions"
+           FROM (("public"."teams" "t"
+             LEFT JOIN "public"."team_members" "tm" ON (("t"."id" = "tm"."team_id")))
+             LEFT JOIN "public"."users" "u" ON ((("u"."id" = "tm"."user_id") OR ("u"."id" = "t"."team_leader_id"))))
+          WHERE (("t"."is_active" = true) AND ("u"."id" IS NOT NULL))
+        )
+ SELECT "team_id",
+    "team_name",
+    "user_id",
+    "first_name",
+    "last_name",
+    "email",
+    "points",
+    "total_co2_saved",
+    "level",
+    "department",
+    "job_title",
+    "is_leader",
+    "joined_at",
+    "verified_actions",
+    "sum"("points") OVER (PARTITION BY "team_id") AS "team_total_points",
+    "sum"("total_co2_saved") OVER (PARTITION BY "team_id") AS "team_total_co2",
+    "count"(*) OVER (PARTITION BY "team_id") AS "team_member_count",
+    "avg"("points") OVER (PARTITION BY "team_id") AS "team_avg_points",
+    "avg"("total_co2_saved") OVER (PARTITION BY "team_id") AS "team_avg_co2"
+   FROM "team_user_stats"
+  ORDER BY "team_id", "is_leader" DESC, "points" DESC;
 
 
-ALTER TABLE "public"."team_members" OWNER TO "postgres";
+ALTER VIEW "public"."team_performance_summary" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."user_analytics" (
@@ -1267,6 +1348,10 @@ CREATE INDEX "idx_sustainability_actions_difficulty" ON "public"."sustainability
 
 
 
+CREATE INDEX "idx_sustainability_actions_status" ON "public"."sustainability_actions" USING "btree" ("status");
+
+
+
 CREATE INDEX "idx_system_settings_category" ON "public"."system_settings" USING "btree" ("category");
 
 
@@ -1378,25 +1463,6 @@ CREATE OR REPLACE VIEW "public"."admin_user_stats" AS
 
 
 
-CREATE OR REPLACE VIEW "public"."admin_team_stats" AS
- SELECT "t"."id",
-    "t"."name",
-    "t"."description",
-    "t"."team_leader_id",
-    (("u"."first_name" || ' '::"text") || "u"."last_name") AS "leader_name",
-    "t"."total_points",
-    "t"."total_co2_saved",
-    "t"."max_members",
-    "count"("tm"."id") AS "current_members",
-    "t"."is_active",
-    "t"."created_at"
-   FROM (("public"."teams" "t"
-     LEFT JOIN "public"."users" "u" ON (("t"."team_leader_id" = "u"."id")))
-     LEFT JOIN "public"."team_members" "tm" ON (("t"."id" = "tm"."team_id")))
-  GROUP BY "t"."id", "u"."first_name", "u"."last_name", "t"."created_at";
-
-
-
 CREATE OR REPLACE TRIGGER "on_point_transaction_created" AFTER INSERT ON "public"."point_transactions" FOR EACH ROW EXECUTE FUNCTION "public"."update_user_points"();
 
 
@@ -1414,6 +1480,10 @@ CREATE OR REPLACE TRIGGER "on_user_action_for_team_stats" AFTER INSERT OR UPDATE
 
 
 CREATE OR REPLACE TRIGGER "on_user_progress_updated" AFTER UPDATE ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."update_challenge_progress"();
+
+
+
+CREATE OR REPLACE TRIGGER "on_user_stats_for_team_update" AFTER UPDATE ON "public"."users" FOR EACH ROW WHEN ((("old"."points" <> "new"."points") OR ("old"."total_co2_saved" <> "new"."total_co2_saved"))) EXECUTE FUNCTION "public"."update_team_stats"();
 
 
 
@@ -1554,6 +1624,34 @@ ALTER TABLE ONLY "public"."users"
 
 
 
+CREATE POLICY "Admin can manage all team members" ON "public"."team_members" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "Admin can manage all teams" ON "public"."teams" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "Team leaders can manage their team members" ON "public"."team_members" USING (("team_id" IN ( SELECT "teams"."id"
+   FROM "public"."teams"
+  WHERE ("teams"."team_leader_id" = "auth"."uid"()))));
+
+
+
+CREATE POLICY "Users can view team members" ON "public"."team_members" FOR SELECT USING ((("team_id" IN ( SELECT "team_members_1"."team_id"
+   FROM "public"."team_members" "team_members_1"
+  WHERE ("team_members_1"."user_id" = "auth"."uid"()))) OR ("team_id" IN ( SELECT "teams"."id"
+   FROM "public"."teams"
+  WHERE ("teams"."team_leader_id" = "auth"."uid"()))) OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true))))));
+
+
+
 ALTER TABLE "public"."action_attachments" ENABLE ROW LEVEL SECURITY;
 
 
@@ -1572,15 +1670,15 @@ CREATE POLICY "action_attachments_select_own" ON "public"."action_attachments" F
 ALTER TABLE "public"."action_categories" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "action_categories_delete_admin" ON "public"."action_categories" FOR DELETE USING (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
-   FROM "public"."admin_permissions"
-  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+CREATE POLICY "action_categories_delete_admin" ON "public"."action_categories" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
 
 
-CREATE POLICY "action_categories_insert_admin" ON "public"."action_categories" FOR INSERT WITH CHECK (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
-   FROM "public"."admin_permissions"
-  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+CREATE POLICY "action_categories_insert_admin" ON "public"."action_categories" FOR INSERT TO "authenticated" WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
 
 
@@ -1588,9 +1686,11 @@ CREATE POLICY "action_categories_select_all" ON "public"."action_categories" FOR
 
 
 
-CREATE POLICY "action_categories_update_admin" ON "public"."action_categories" FOR UPDATE USING (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
-   FROM "public"."admin_permissions"
-  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+CREATE POLICY "action_categories_update_admin" ON "public"."action_categories" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
 
 
@@ -1716,15 +1816,15 @@ CREATE POLICY "point_transactions_select_own" ON "public"."point_transactions" F
 ALTER TABLE "public"."sustainability_actions" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "sustainability_actions_delete_admin" ON "public"."sustainability_actions" FOR DELETE USING (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
-   FROM "public"."admin_permissions"
-  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+CREATE POLICY "sustainability_actions_delete_admin" ON "public"."sustainability_actions" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
 
 
-CREATE POLICY "sustainability_actions_insert_admin" ON "public"."sustainability_actions" FOR INSERT WITH CHECK (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
-   FROM "public"."admin_permissions"
-  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+CREATE POLICY "sustainability_actions_insert_admin" ON "public"."sustainability_actions" FOR INSERT TO "authenticated" WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
 
 
@@ -1732,9 +1832,11 @@ CREATE POLICY "sustainability_actions_select_all" ON "public"."sustainability_ac
 
 
 
-CREATE POLICY "sustainability_actions_update_admin" ON "public"."sustainability_actions" FOR UPDATE USING (("auth"."uid"() IN ( SELECT "admin_permissions"."user_id"
-   FROM "public"."admin_permissions"
-  WHERE (("admin_permissions"."permission_type" = ANY (ARRAY['super_admin'::"text", 'system_admin'::"text", 'manage_content'::"text"])) AND ("admin_permissions"."is_active" = true)))));
+CREATE POLICY "sustainability_actions_update_admin" ON "public"."sustainability_actions" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
 
 
@@ -2239,6 +2341,12 @@ GRANT ALL ON TABLE "public"."admin_permissions" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."team_members" TO "anon";
+GRANT ALL ON TABLE "public"."team_members" TO "authenticated";
+GRANT ALL ON TABLE "public"."team_members" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."admin_team_stats" TO "anon";
 GRANT ALL ON TABLE "public"."admin_team_stats" TO "authenticated";
 GRANT ALL ON TABLE "public"."admin_team_stats" TO "service_role";
@@ -2287,9 +2395,9 @@ GRANT ALL ON TABLE "public"."system_settings" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."team_members" TO "anon";
-GRANT ALL ON TABLE "public"."team_members" TO "authenticated";
-GRANT ALL ON TABLE "public"."team_members" TO "service_role";
+GRANT ALL ON TABLE "public"."team_performance_summary" TO "anon";
+GRANT ALL ON TABLE "public"."team_performance_summary" TO "authenticated";
+GRANT ALL ON TABLE "public"."team_performance_summary" TO "service_role";
 
 
 
