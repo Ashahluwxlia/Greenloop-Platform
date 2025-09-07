@@ -364,62 +364,84 @@ ALTER FUNCTION "public"."update_challenge_progress"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_team_stats"() RETURNS "trigger"
-    LANGUAGE "plpgsql" SECURITY DEFINER
+    LANGUAGE "plpgsql"
     AS $$
 DECLARE
-    team_id_to_update UUID;
-    new_total_points INTEGER;
-    new_total_co2 NUMERIC;
-    new_member_count INTEGER;
+  team_id_to_update UUID;
+  new_total_points INTEGER;
+  new_total_co2 DECIMAL(10,2);
+  team_leader_id UUID;
 BEGIN
-    -- Determine which team to update based on the operation
-    IF TG_OP = 'DELETE' THEN
-        team_id_to_update := OLD.team_id;
-    ELSE
-        team_id_to_update := NEW.team_id;
-    END IF;
-
-    -- Calculate total points and CO2 from team members AND team leader
-    WITH team_contributions AS (
-        -- Get contributions from team members
-        SELECT 
-            u.points,
-            u.total_co2_saved
-        FROM public.users u
-        INNER JOIN public.team_members tm ON u.id = tm.user_id
-        WHERE tm.team_id = team_id_to_update
-        
-        UNION ALL
-        
-        -- Get contributions from team leader
-        SELECT 
-            u.points,
-            u.total_co2_saved
-        FROM public.users u
-        INNER JOIN public.teams t ON u.id = t.team_leader_id  -- Added table prefix to fix ambiguous reference
-        WHERE t.id = team_id_to_update
-    )
-    SELECT 
-        COALESCE(SUM(points), 0),
-        COALESCE(SUM(total_co2_saved), 0)
-    INTO new_total_points, new_total_co2
-    FROM team_contributions;
-
-    -- Count current members (excluding leader)
-    SELECT COUNT(*)
-    INTO new_member_count
+  -- Get team ID from different trigger sources
+  IF TG_TABLE_NAME = 'user_actions' THEN
+    SELECT tm.team_id INTO team_id_to_update
     FROM public.team_members tm
-    WHERE tm.team_id = team_id_to_update;
+    WHERE tm.user_id = NEW.user_id;
+    
+    -- Also check if user is a team leader
+    IF team_id_to_update IS NULL THEN
+      SELECT t.id INTO team_id_to_update
+      FROM public.teams t
+      WHERE t.team_leader_id = NEW.user_id;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'team_members' THEN
+    team_id_to_update := COALESCE(NEW.team_id, OLD.team_id);
+  ELSIF TG_TABLE_NAME = 'users' THEN
+    -- Check if updated user is a team leader
+    SELECT t.id INTO team_id_to_update
+    FROM public.teams t
+    WHERE t.team_leader_id = NEW.id;
+    
+    -- Also check if user is a team member
+    IF team_id_to_update IS NULL THEN
+      SELECT tm.team_id INTO team_id_to_update
+      FROM public.team_members tm
+      WHERE tm.user_id = NEW.id;
+    END IF;
+  END IF;
 
-    -- Update the team totals
-    UPDATE public.teams 
-    SET 
-        total_points = new_total_points,
-        total_co2_saved = new_total_co2,
-        updated_at = NOW()
+  -- Only proceed if user is associated with a team
+  IF team_id_to_update IS NOT NULL THEN
+    -- Get team leader ID
+    SELECT team_leader_id INTO team_leader_id
+    FROM public.teams
     WHERE id = team_id_to_update;
 
-    RETURN COALESCE(NEW, OLD);
+    -- Calculate team totals including both team members AND team leader
+    WITH team_users AS (
+      -- Get all team members
+      SELECT u.id, u.points, u.total_co2_saved
+      FROM public.users u
+      INNER JOIN public.team_members tm ON u.id = tm.user_id
+      WHERE tm.team_id = team_id_to_update
+      
+      UNION
+      
+      -- Add team leader (if not already included as member)
+      SELECT u.id, u.points, u.total_co2_saved
+      FROM public.users u
+      WHERE u.id = team_leader_id
+      AND NOT EXISTS (
+        SELECT 1 FROM public.team_members tm 
+        WHERE tm.team_id = team_id_to_update AND tm.user_id = team_leader_id
+      )
+    )
+    SELECT 
+      COALESCE(SUM(points), 0),
+      COALESCE(SUM(total_co2_saved), 0)
+    INTO new_total_points, new_total_co2
+    FROM team_users;
+
+    -- Update team record
+    UPDATE public.teams
+    SET 
+      total_points = new_total_points,
+      total_co2_saved = new_total_co2,
+      updated_at = NOW()
+    WHERE id = team_id_to_update;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
 END;
 $$;
 
@@ -607,9 +629,7 @@ CREATE TABLE IF NOT EXISTS "public"."sustainability_actions" (
     "is_active" boolean DEFAULT true,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
-    "status" "text" DEFAULT 'draft'::"text" NOT NULL,
-    CONSTRAINT "sustainability_actions_difficulty_level_check" CHECK ((("difficulty_level" >= 1) AND ("difficulty_level" <= 5))),
-    CONSTRAINT "sustainability_actions_status_check" CHECK (("status" = ANY (ARRAY['draft'::"text", 'published'::"text", 'archived'::"text"])))
+    CONSTRAINT "sustainability_actions_difficulty_level_check" CHECK ((("difficulty_level" >= 1) AND ("difficulty_level" <= 5)))
 );
 
 
@@ -865,26 +885,33 @@ ALTER TABLE "public"."team_members" OWNER TO "postgres";
 
 
 CREATE OR REPLACE VIEW "public"."admin_team_stats" AS
+ WITH "team_member_counts" AS (
+         SELECT "t_1"."id" AS "team_id",
+            "count"("tm"."id") AS "member_count",
+                CASE
+                    WHEN (EXISTS ( SELECT 1
+                       FROM "public"."team_members" "tm2"
+                      WHERE (("tm2"."team_id" = "t_1"."id") AND ("tm2"."user_id" = "t_1"."team_leader_id")))) THEN 0
+                    ELSE 1
+                END AS "leader_not_member"
+           FROM ("public"."teams" "t_1"
+             LEFT JOIN "public"."team_members" "tm" ON (("t_1"."id" = "tm"."team_id")))
+          GROUP BY "t_1"."id", "t_1"."team_leader_id"
+        )
  SELECT "t"."id",
     "t"."name",
     "t"."description",
     "t"."team_leader_id",
-    "t"."max_members",
-    "count"("tm"."id") AS "current_members",
+    COALESCE("concat"("u"."first_name", ' ', "u"."last_name"), "u"."email", 'Unknown Leader'::"text") AS "leader_name",
     "t"."total_points",
     "t"."total_co2_saved",
+    "t"."max_members",
+    ("tmc"."member_count" + "tmc"."leader_not_member") AS "current_members",
     "t"."is_active",
-    "t"."created_at",
-    "t"."updated_at",
-    "u"."first_name" AS "leader_first_name",
-    "u"."last_name" AS "leader_last_name",
-    "u"."email" AS "leader_email"
+    "t"."created_at"
    FROM (("public"."teams" "t"
      LEFT JOIN "public"."users" "u" ON (("t"."team_leader_id" = "u"."id")))
-     LEFT JOIN "public"."team_members" "tm" ON (("t"."id" = "tm"."team_id")))
-  WHERE ("t"."is_active" = true)
-  GROUP BY "t"."id", "t"."name", "t"."description", "t"."team_leader_id", "t"."max_members", "t"."total_points", "t"."total_co2_saved", "t"."is_active", "t"."created_at", "t"."updated_at", "u"."first_name", "u"."last_name", "u"."email"
-  ORDER BY "t"."created_at" DESC;
+     LEFT JOIN "team_member_counts" "tmc" ON (("t"."id" = "tmc"."team_id")));
 
 
 ALTER VIEW "public"."admin_team_stats" OWNER TO "postgres";
@@ -1348,10 +1375,6 @@ CREATE INDEX "idx_sustainability_actions_difficulty" ON "public"."sustainability
 
 
 
-CREATE INDEX "idx_sustainability_actions_status" ON "public"."sustainability_actions" USING "btree" ("status");
-
-
-
 CREATE INDEX "idx_system_settings_category" ON "public"."system_settings" USING "btree" ("category");
 
 
@@ -1621,34 +1644,6 @@ ALTER TABLE ONLY "public"."user_sessions"
 
 ALTER TABLE ONLY "public"."users"
     ADD CONSTRAINT "users_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
-
-
-
-CREATE POLICY "Admin can manage all team members" ON "public"."team_members" USING ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
-
-
-
-CREATE POLICY "Admin can manage all teams" ON "public"."teams" USING ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
-
-
-
-CREATE POLICY "Team leaders can manage their team members" ON "public"."team_members" USING (("team_id" IN ( SELECT "teams"."id"
-   FROM "public"."teams"
-  WHERE ("teams"."team_leader_id" = "auth"."uid"()))));
-
-
-
-CREATE POLICY "Users can view team members" ON "public"."team_members" FOR SELECT USING ((("team_id" IN ( SELECT "team_members_1"."team_id"
-   FROM "public"."team_members" "team_members_1"
-  WHERE ("team_members_1"."user_id" = "auth"."uid"()))) OR ("team_id" IN ( SELECT "teams"."id"
-   FROM "public"."teams"
-  WHERE ("teams"."team_leader_id" = "auth"."uid"()))) OR (EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true))))));
 
 
 

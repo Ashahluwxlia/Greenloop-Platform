@@ -86,9 +86,18 @@ export default function AdminTeamsPage() {
             .select("*")
             .eq("team_id", team.id)
 
-          const memberCount = performanceData?.length || 0
-          const totalPoints = performanceData?.reduce((sum, member) => sum + (member.points || 0), 0) || 0
-          const totalCo2 = performanceData?.reduce((sum, member) => sum + (member.total_co2_saved || 0), 0) || 0
+          const uniqueMembers = new Map()
+          ;(performanceData || []).forEach((member: any) => {
+            const existing = uniqueMembers.get(member.user_id)
+            if (!existing || member.is_leader) {
+              uniqueMembers.set(member.user_id, member)
+            }
+          })
+
+          const deduplicatedMembers = Array.from(uniqueMembers.values())
+          const memberCount = deduplicatedMembers.length
+          const totalPoints = deduplicatedMembers.reduce((sum, member) => sum + (member.points || 0), 0) || 0
+          const totalCo2 = deduplicatedMembers.reduce((sum, member) => sum + (member.total_co2_saved || 0), 0) || 0
 
           return {
             id: team.id,

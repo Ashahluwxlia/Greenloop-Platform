@@ -22,9 +22,10 @@ interface MemberActionDropdownProps {
   memberId: string
   teamId: string
   memberName: string
+  onRemove?: () => void
 }
 
-export function MemberActionDropdown({ memberId, teamId, memberName }: MemberActionDropdownProps) {
+export function MemberActionDropdown({ memberId, teamId, memberName, onRemove }: MemberActionDropdownProps) {
   const [showRemoveDialog, setShowRemoveDialog] = useState(false)
   const [loading, setLoading] = useState(false)
   const { toast } = useToast()
@@ -43,7 +44,11 @@ export function MemberActionDropdown({ memberId, teamId, memberName }: MemberAct
         description: `${memberName} has been removed from the team`,
       })
 
-      router.refresh()
+      if (onRemove) {
+        onRemove()
+      } else {
+        router.refresh()
+      }
     } catch (error: any) {
       toast({
         title: "Error",
