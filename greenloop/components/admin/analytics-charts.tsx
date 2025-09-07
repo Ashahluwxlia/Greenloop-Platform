@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -37,6 +37,7 @@ interface AnalyticsChartsProps {
   monthlyActionTrends: any[]
   categoryBreakdown: any[]
   teamPerformance: any[]
+  onDateRangeChange?: (from: Date | undefined, to: Date | undefined) => void
 }
 
 export default function AnalyticsCharts({
@@ -51,21 +52,44 @@ export default function AnalyticsCharts({
   monthlyActionTrends,
   categoryBreakdown,
   teamPerformance,
+  onDateRangeChange,
 }: AnalyticsChartsProps) {
-  const [dateRange, setDateRange] = useState<{
-    from: Date | undefined
-    to: Date | undefined
-  }>({
-    from: new Date(new Date().getFullYear(), new Date().getMonth() - 3, 1), // Default to last 3 months
-    to: new Date(),
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
+    from: new Date(2025, 5, 1), // June 1, 2025
+    to: new Date(2025, 8, 7), // September 7, 2025
   })
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+
+  const filteredCategoryBreakdown = categoryBreakdown
+    .filter((category) => category.value > 0)
+    .map((category, index, array) => {
+      const percentage = array.length > 0 ? (category.value / array.reduce((sum, cat) => sum + cat.value, 0)) * 100 : 0
+      return {
+        ...category,
+        percentage: Math.round(percentage),
+      }
+    })
+    .filter((category) => category.percentage >= 1) // Only show categories with at least 1%
+
+  const hasValidCategoryData = filteredCategoryBreakdown.length > 0
+
+  const handleDateRangeChange = useCallback(
+    (range: DateRange | undefined) => {
+      console.log("[v0] Date range changed:", range)
+      setDateRange(range)
+
+      if (range?.from && range?.to && onDateRangeChange) {
+        console.log("[v0] Triggering data fetch for date range:", range.from, "to", range.to)
+        onDateRangeChange(range.from, range.to)
+      }
+    },
+    [onDateRangeChange],
+  )
 
   const handleExportReport = () => {
     const reportData = {
       dateRange: {
-        from: dateRange.from?.toISOString(),
-        to: dateRange.to?.toISOString(),
+        from: dateRange?.from?.toISOString(),
+        to: dateRange?.to?.toISOString(),
       },
       metrics: {
         totalUsers: totalUsersCount,
@@ -105,6 +129,16 @@ export default function AnalyticsCharts({
     window.URL.revokeObjectURL(url)
   }
 
+  const formattedMonthlyUserGrowth = monthlyUserGrowth.map((item) => ({
+    ...item,
+    month: item.month.replace(/(\w+)\s*(\d{2})$/, "$1 20$2"),
+  }))
+
+  const formattedMonthlyActionTrends = monthlyActionTrends.map((item) => ({
+    ...item,
+    month: item.month.replace(/(\w+)\s*(\d{2})$/, "$1 20$2"),
+  }))
+
   return (
     <main className="flex-1 p-8">
       <div className="space-y-8">
@@ -120,17 +154,17 @@ export default function AnalyticsCharts({
             </p>
           </div>
           <div className="flex gap-3">
-            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+            <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className={cn("w-[280px] justify-start text-left font-normal")}>
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {dateRange?.from ? (
                     dateRange.to ? (
                       <>
-                        {format(dateRange.from, "LLL dd, y")} - {format(dateRange.to, "LLL dd, y")}
+                        {format(dateRange.from, "MMM dd, yyyy")} - {format(dateRange.to, "MMM dd, yyyy")}
                       </>
                     ) : (
-                      format(dateRange.from, "LLL dd, y")
+                      format(dateRange.from, "MMM dd, yyyy")
                     )
                   ) : (
                     <span>Pick a date range</span>
@@ -143,19 +177,7 @@ export default function AnalyticsCharts({
                   mode="range"
                   defaultMonth={dateRange?.from}
                   selected={dateRange}
-                  onSelect={(range: DateRange | undefined) => {
-                    if (range) {
-                      setDateRange({
-                        from: range.from,
-                        to: range.to,
-                      })
-                      if (range.from && range.to) {
-                        setIsDatePickerOpen(false)
-                      }
-                    } else {
-                      setDateRange({ from: undefined, to: undefined })
-                    }
-                  }}
+                  onSelect={handleDateRangeChange}
                   numberOfMonths={2}
                 />
               </PopoverContent>
@@ -245,15 +267,21 @@ export default function AnalyticsCharts({
                   <CardDescription>New user registrations over time</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={monthlyUserGrowth}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" />
-                      <YAxis />
-                      <Tooltip />
-                      <Area type="monotone" dataKey="newUsers" stroke="#0891b2" fill="#0891b2" fillOpacity={0.6} />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                  {formattedMonthlyUserGrowth.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <AreaChart data={formattedMonthlyUserGrowth}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="month" />
+                        <YAxis />
+                        <Tooltip />
+                        <Area type="monotone" dataKey="newUsers" stroke="#0891b2" fill="#0891b2" fillOpacity={0.6} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                      No user growth data available yet
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -264,25 +292,33 @@ export default function AnalyticsCharts({
                   <CardDescription>Distribution of sustainability actions</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={categoryBreakdown}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} ${percent ? Math.round(percent * 100) : 0}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {categoryBreakdown.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {hasValidCategoryData ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <PieChart>
+                        <Pie
+                          data={filteredCategoryBreakdown}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percentage }) => {
+                            return percentage >= 5 ? `${name} ${percentage}%` : ""
+                          }}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {filteredCategoryBreakdown.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value, name) => [`${value} actions`, name]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                      No action category data available yet
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -294,23 +330,28 @@ export default function AnalyticsCharts({
                 <CardDescription>Actions, points, and CO₂ impact over time</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={400}>
-                  <LineChart data={monthlyActionTrends}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="actions" stroke="#0891b2" strokeWidth={2} name="Actions" />
-                    <Line type="monotone" dataKey="points" stroke="#d97706" strokeWidth={2} name="Points" />
-                    <Line type="monotone" dataKey="co2" stroke="#34d399" strokeWidth={2} name="CO₂ Saved (kg)" />
-                  </LineChart>
-                </ResponsiveContainer>
+                {formattedMonthlyActionTrends.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={400}>
+                    <LineChart data={formattedMonthlyActionTrends}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="actions" stroke="#0891b2" strokeWidth={2} name="Actions" />
+                      <Line type="monotone" dataKey="points" stroke="#d97706" strokeWidth={2} name="Points" />
+                      <Line type="monotone" dataKey="co2" stroke="#34d399" strokeWidth={2} name="CO₂ Saved (kg)" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-[400px] text-muted-foreground">
+                    No monthly activity data available yet
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="users" className="space-y-6">
-            {/* Top Performing Users */}
             <Card>
               <CardHeader>
                 <CardTitle>Top Performing Users</CardTitle>
@@ -319,17 +360,27 @@ export default function AnalyticsCharts({
               <CardContent>
                 <div className="space-y-4">
                   {teamPerformance && teamPerformance.length > 0 ? (
-                    teamPerformance.map((user, index) => (
+                    teamPerformance.map((user: any, index: number) => (
                       <div
                         key={user.user_id || index}
-                        className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+                        className="flex items-center justify-between p-4 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="flex items-center justify-center w-8 h-8 bg-primary/10 rounded-full">
-                            <span className="text-sm font-bold text-primary">#{index + 1}</span>
+                          <div
+                            className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                              index === 0
+                                ? "bg-yellow-100 text-yellow-700"
+                                : index === 1
+                                  ? "bg-gray-100 text-gray-700"
+                                  : index === 2
+                                    ? "bg-orange-100 text-orange-700"
+                                    : "bg-primary/10 text-primary"
+                            }`}
+                          >
+                            <span className="text-sm font-bold">#{index + 1}</span>
                           </div>
                           <div>
-                            <p className="font-medium">{user.full_name || user.name}</p>
+                            <p className="font-medium">{user.full_name || user.name || "Anonymous User"}</p>
                             <p className="text-sm text-muted-foreground">
                               {Math.round(user.total_co2_saved || 0)}kg CO₂ saved • {user.verified_actions || 0} actions
                             </p>
@@ -344,7 +395,13 @@ export default function AnalyticsCharts({
                       </div>
                     ))
                   ) : (
-                    <p className="text-muted-foreground text-center py-4">No user data available</p>
+                    <div className="flex items-center justify-center py-8 text-muted-foreground">
+                      <div className="text-center">
+                        <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p className="font-medium">No user performance data available</p>
+                        <p className="text-sm">Users need to complete actions to appear here</p>
+                      </div>
+                    </div>
                   )}
                 </div>
               </CardContent>
@@ -371,7 +428,7 @@ export default function AnalyticsCharts({
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-bold text-orange-600">
-                    {totalUsersCount && totalActionsCount
+                    {totalUsersCount && totalActionsCount && totalUsersCount > 0
                       ? Math.round((totalActionsCount / totalUsersCount) * 10) / 10
                       : 0}
                   </div>
@@ -394,8 +451,8 @@ export default function AnalyticsCharts({
           <TabsContent value="impact" className="space-y-6">
             {/* Environmental Impact Breakdown */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              {categoryBreakdown.length > 0 ? (
-                categoryBreakdown.map((category) => (
+              {filteredCategoryBreakdown.length > 0 ? (
+                filteredCategoryBreakdown.map((category) => (
                   <Card key={category.name}>
                     <CardHeader>
                       <CardTitle className="text-sm">{category.name}</CardTitle>
@@ -412,7 +469,13 @@ export default function AnalyticsCharts({
               ) : (
                 <Card className="col-span-4">
                   <CardContent className="text-center py-8">
-                    <p className="text-muted-foreground">No environmental impact data available yet</p>
+                    <div className="text-center">
+                      <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
+                      <p className="font-medium text-muted-foreground">No environmental impact data available</p>
+                      <p className="text-sm text-muted-foreground">
+                        Complete sustainability actions to see impact metrics
+                      </p>
+                    </div>
                   </CardContent>
                 </Card>
               )}

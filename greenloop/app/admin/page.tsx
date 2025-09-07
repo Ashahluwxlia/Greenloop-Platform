@@ -2,8 +2,8 @@ import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Button } from "@/components/ui/button"
 import { DashboardCharts } from "@/components/admin/dashboard-charts"
+import { RefreshButton } from "@/components/admin/refresh-button"
 import {
   Users,
   Trophy,
@@ -11,12 +11,19 @@ import {
   TrendingUp,
   Activity,
   CheckCircle,
-  RefreshCw,
   Calendar,
   Leaf,
   Award,
   ArrowUpRight,
 } from "lucide-react"
+
+interface TopPerformer {
+  user_id: string
+  full_name: string
+  total_co2_saved: number
+  verified_actions: number
+  points: number
+}
 
 export default async function AdminDashboard() {
   const supabase = await createClient()
@@ -48,28 +55,30 @@ export default async function AdminDashboard() {
 
   const monthlyData =
     monthlyTrends?.map((trend) => ({
-      month: new Date(trend.month).toLocaleDateString("en-US", { month: "short" }),
+      month: new Date(trend.month).toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
       users: trend.new_users || 0,
       actions: trend.actions_completed || 0,
     })) || []
 
   const categoryData =
-    categoryBreakdown?.map((category, index) => ({
-      name: category.category_name,
-      value: category.percentage || 0,
-      color: [
-        "#0891b2",
-        "#d97706",
-        "#34d399",
-        "#fbbf24",
-        "#f87171",
-        "#8b5cf6",
-        "#06b6d4",
-        "#10b981",
-        "#f59e0b",
-        "#ef4444",
-      ][index % 10],
-    })) || []
+    categoryBreakdown
+      ?.filter((category) => (category.percentage || 0) > 0)
+      .map((category, index) => ({
+        name: category.category_name,
+        value: category.percentage || 0,
+        color: [
+          "#0891b2",
+          "#d97706",
+          "#34d399",
+          "#fbbf24",
+          "#f87171",
+          "#8b5cf6",
+          "#06b6d4",
+          "#10b981",
+          "#f59e0b",
+          "#ef4444",
+        ][index % 10],
+      })) || []
 
   const weeklyData =
     weeklyActivity?.map((day) => ({
@@ -124,10 +133,7 @@ export default async function AdminDashboard() {
           </div>
           <div className="flex items-center gap-4">
             <div className="text-sm text-muted-foreground">Last updated: {new Date().toLocaleTimeString()}</div>
-            <Button variant="outline" size="sm">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
+            <RefreshButton />
           </div>
         </div>
 
@@ -269,7 +275,7 @@ export default async function AdminDashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {topTeams?.map((user, index) => (
+                {topTeams?.map((user: TopPerformer, index: number) => (
                   <div
                     key={user.user_id}
                     className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"

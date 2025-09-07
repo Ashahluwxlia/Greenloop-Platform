@@ -77,6 +77,23 @@ export function DashboardCharts({
   challengeStats,
   teamStats,
 }: DashboardChartsProps) {
+  const filteredCategoryData = categoryData
+    .filter((category) => category.value > 0)
+    .map((category, index, array) => {
+      const total = array.reduce((sum, cat) => sum + cat.value, 0)
+      const percentage = total > 0 ? (category.value / total) * 100 : 0
+      return {
+        ...category,
+        percentage: Math.round(percentage),
+      }
+    })
+    .filter((category) => category.percentage >= 1) // Only show categories with at least 1%
+
+  const formattedTrendData = trendData.map((item) => ({
+    ...item,
+    month: item.month.replace(/(\w+)\s*(\d{2})$/, "$1 20$2"),
+  }))
+
   return (
     <div className="space-y-6">
       {(userStats || challengeStats || teamStats) && (
@@ -143,7 +160,9 @@ export function DashboardCharts({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm">Avg Team Size:</span>
-                  <span className="font-medium">{Math.round(teamStats.avg_team_size)}</span>
+                  <span className="font-medium">
+                    {teamStats.total_teams > 0 ? Math.round(teamStats.avg_team_size + 1) : 0}
+                  </span>
                 </div>
               </div>
             </div>
@@ -156,7 +175,7 @@ export function DashboardCharts({
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h3 className="text-lg font-semibold mb-4">Monthly Trends</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={trendData}>
+            <LineChart data={formattedTrendData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
               <YAxis />
@@ -167,26 +186,27 @@ export function DashboardCharts({
           </ResponsiveContainer>
         </div>
 
-        {/* Action Categories Chart */}
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h3 className="text-lg font-semibold mb-4">Action Categories</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
-                data={categoryData}
+                data={filteredCategoryData}
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                label={({ name, percentage }) => {
+                  return percentage >= 5 ? `${name} ${percentage}%` : ""
+                }}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
               >
-                {categoryData.map((entry, index) => (
+                {filteredCategoryData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip formatter={(value, name) => [`${value} actions`, name]} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -211,9 +231,22 @@ export function DashboardCharts({
           <h3 className="text-lg font-semibold mb-4">Top Performing Teams</h3>
           <div className="space-y-3">
             {teamStats.top_performing_teams.slice(0, 5).map((team, index) => (
-              <div key={team.name} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div
+                key={team.name}
+                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+              >
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white font-bold text-sm">
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                      index === 0
+                        ? "bg-yellow-500"
+                        : index === 1
+                          ? "bg-gray-400"
+                          : index === 2
+                            ? "bg-orange-500"
+                            : "bg-primary"
+                    }`}
+                  >
                     {index + 1}
                   </div>
                   <div>

@@ -156,6 +156,11 @@ export default function AdminTeamsPage() {
     }
   }
 
+  const handleManageMembers = (team: Team) => {
+    // Navigate to team member management page or open modal
+    window.location.href = `/admin/teams/${team.id}/members`
+  }
+
   const filterOptions = [
     {
       key: "is_active",
@@ -261,14 +266,16 @@ export default function AdminTeamsPage() {
                       <div className="flex items-center gap-2">
                         <Users className="h-4 w-4 text-muted-foreground" />
                         <span>
-                          {team.current_members} / {team.max_members}
+                          {team.team_leader_id ? team.current_members + 1 : team.current_members} / {team.max_members}
                         </span>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <TrendingUp className="h-4 w-4 text-primary" />
-                        <span className="font-medium">{team.total_points || 0} pts</span>
+                        <span className="font-medium">
+                          {team.total_points && team.total_points > 0 ? team.total_points : 0} pts
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -292,12 +299,7 @@ export default function AdminTeamsPage() {
                         onEdit={() => handleEditTeam(team)}
                         onDelete={() => handleDeleteTeam(team)}
                         onToggleStatus={() => handleToggleTeamStatus(team)}
-                        onManageMembers={() => {
-                          toast({
-                            title: "Feature Coming Soon",
-                            description: "Member management will be available in the next update.",
-                          })
-                        }}
+                        onManageMembers={() => handleManageMembers(team)}
                       />
                     </TableCell>
                   </TableRow>

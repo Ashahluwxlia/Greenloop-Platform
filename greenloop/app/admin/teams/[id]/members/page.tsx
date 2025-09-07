@@ -1,0 +1,301 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useParams, useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useToast } from "@/hooks/use-toast"
+import { ArrowLeft, Users, Crown, Mail, Calendar } from "lucide-react"
+import { MemberActionDropdown } from "@/components/admin/member-action-dropdown"
+import { AddMemberModal } from "@/components/admin/add-member-modal"
+
+interface TeamMember {
+  id: string
+  full_name: string
+  email: string
+  total_points: number
+  total_co2_saved: number
+  verified_actions: number
+  joined_at: string
+  is_leader: boolean
+}
+
+interface Team {
+  id: string
+  name: string
+  description: string
+  team_leader_id: string
+  max_members: number
+  current_members: number
+}
+
+export default function ManageMembersPage() {
+  const params = useParams()
+  const router = useRouter()
+  const { toast } = useToast()
+  const [team, setTeam] = useState<Team | null>(null)
+  const [members, setMembers] = useState<TeamMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const supabase = createClient()
+
+  const loadData = async () => {
+    try {
+      const teamId = params.id as string
+
+      // Load team details
+      const { data: teamData } = await supabase.from("teams").select("*").eq("id", teamId).single()
+
+      if (!teamData) {
+        toast({
+          title: "Error",
+          description: "Team not found",
+          variant: "destructive",
+        })
+        router.push("/admin/teams")
+        return
+      }
+
+      setTeam(teamData)
+
+      // Load team members
+      const { data: membersData } = await supabase
+        .from("team_members")
+        .select(`
+          user_id,
+          joined_at,
+          users!inner (
+            id,
+            full_name,
+            email,
+            total_points,
+            total_co2_saved,
+            verified_actions
+          )
+        `)
+        .eq("team_id", teamId)
+
+      const formattedMembers: TeamMember[] = (membersData || []).map((member: any) => ({
+        id: member.users.id,
+        full_name: member.users.full_name,
+        email: member.users.email,
+        total_points: member.users.total_points || 0,
+        total_co2_saved: member.users.total_co2_saved || 0,
+        verified_actions: member.users.verified_actions || 0,
+        joined_at: member.joined_at,
+        is_leader: member.users.id === teamData.team_leader_id,
+      }))
+
+      // Add team leader if not already in members
+      if (teamData.team_leader_id && !formattedMembers.find((m) => m.id === teamData.team_leader_id)) {
+        const { data: leaderData } = await supabase.from("users").select("*").eq("id", teamData.team_leader_id).single()
+
+        if (leaderData) {
+          formattedMembers.unshift({
+            id: leaderData.id,
+            full_name: leaderData.full_name,
+            email: leaderData.email,
+            total_points: leaderData.total_points || 0,
+            total_co2_saved: leaderData.total_co2_saved || 0,
+            verified_actions: leaderData.verified_actions || 0,
+            joined_at: teamData.created_at,
+            is_leader: true,
+          })
+        }
+      }
+
+      setMembers(formattedMembers)
+    } catch (error) {
+      console.error("Error loading data:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load team members",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [params.id])
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!team) return
+
+    if (!confirm("Are you sure you want to remove this member from the team?")) {
+      return
+    }
+
+    try {
+      const { error } = await supabase.from("team_members").delete().eq("team_id", team.id).eq("user_id", memberId)
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: "Member removed from team successfully",
+      })
+
+      loadData()
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to remove member",
+        variant: "destructive",
+      })
+    }
+  }
+
+  if (loading) {
+    return (
+      <main className="flex-1 p-8">
+        <div className="text-center">Loading...</div>
+      </main>
+    )
+  }
+
+  return (
+    <main className="flex-1 p-8">
+      <div className="space-y-8">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" onClick={() => router.push("/admin/teams")}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Teams
+            </Button>
+            <div>
+              <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
+                <Users className="h-8 w-8 text-primary" />
+                Manage Members - {team?.name}
+              </h1>
+              <p className="text-muted-foreground">
+                Manage team members, view their contributions, and track team performance.
+              </p>
+            </div>
+          </div>
+          {team && <AddMemberModal teamId={team.id} />}
+        </div>
+
+        {/* Team Info */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Team Information</CardTitle>
+            <CardDescription>{team?.description}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Current Members</p>
+                <p className="text-2xl font-bold">
+                  {members.length} / {team?.max_members}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Points</p>
+                <p className="text-2xl font-bold text-primary">
+                  {members.reduce((sum, member) => sum + member.total_points, 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total CO₂ Saved</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {Math.round(members.reduce((sum, member) => sum + member.total_co2_saved, 0))}kg
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Members Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Team Members ({members.length})</CardTitle>
+            <CardDescription>All members of this team and their contributions</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Member</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Points</TableHead>
+                  <TableHead>CO₂ Saved</TableHead>
+                  <TableHead>Actions</TableHead>
+                  <TableHead>Joined</TableHead>
+                  <TableHead className="w-[50px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {members.map((member) => (
+                  <TableRow key={member.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-10 w-10">
+                          <AvatarFallback>
+                            {member.full_name
+                              ?.split(" ")
+                              .map((n) => n[0])
+                              .join("")}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium">{member.full_name}</p>
+                          <p className="text-sm text-muted-foreground flex items-center gap-1">
+                            <Mail className="h-3 w-3" />
+                            {member.email}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {member.is_leader ? (
+                        <Badge variant="default" className="flex items-center gap-1 w-fit">
+                          <Crown className="h-3 w-3" />
+                          Team Leader
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">Member</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-medium text-primary">{member.total_points}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-medium text-green-600">{Math.round(member.total_co2_saved)}kg</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-medium">{member.verified_actions}</span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        {new Date(member.joined_at).toLocaleDateString()}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {!member.is_leader && team ? (
+                        <MemberActionDropdown
+                          memberId={member.id}
+                          teamId={team.id}
+                          memberName={member.full_name && member.email}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground text-sm">Team Leader</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
+  )
+}
