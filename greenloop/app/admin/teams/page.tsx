@@ -57,13 +57,59 @@ export default function AdminTeamsPage() {
 
       setUserProfile(profile)
 
-      const { data: teamsData } = await supabase
-        .from("admin_team_stats")
-        .select("*")
-        .order("total_points", { ascending: false })
+      const { data: teamsData, error: teamsError } = await supabase
+        .from("teams")
+        .select(`
+          id,
+          name,
+          description,
+          team_leader_id,
+          max_members,
+          is_active,
+          created_at,
+          users!teams_team_leader_id_fkey(first_name, last_name)
+        `)
+        .order("created_at", { ascending: false })
 
-      setTeams(teamsData || [])
-      setFilteredTeams(teamsData || [])
+      if (teamsError) {
+        console.error("[v0] Teams error:", teamsError)
+        setTeams([])
+        setFilteredTeams([])
+        return
+      }
+
+      const teamsWithStats = await Promise.all(
+        (teamsData || []).map(async (team) => {
+          // Get team performance data including leader and members
+          const { data: performanceData } = await supabase
+            .from("team_performance_summary")
+            .select("*")
+            .eq("team_id", team.id)
+
+          const memberCount = performanceData?.length || 0
+          const totalPoints = performanceData?.reduce((sum, member) => sum + (member.points || 0), 0) || 0
+          const totalCo2 = performanceData?.reduce((sum, member) => sum + (member.total_co2_saved || 0), 0) || 0
+
+          return {
+            id: team.id,
+            name: team.name,
+            description: team.description,
+            team_leader_id: team.team_leader_id,
+            leader_name: team.users ? `${(team.users as any).first_name} ${(team.users as any).last_name}` : "Unknown",
+            max_members: team.max_members,
+            current_members: memberCount,
+            total_points: Math.round(totalPoints),
+            total_co2_saved: Math.round(totalCo2),
+            is_active: team.is_active,
+            created_at: team.created_at,
+          }
+        }),
+      )
+
+      console.log("[v0] Teams with corrected stats:", teamsWithStats)
+
+      setTeams(teamsWithStats)
+      setFilteredTeams(teamsWithStats)
     } catch (error) {
       console.error("Error loading data:", error)
     } finally {
@@ -266,16 +312,14 @@ export default function AdminTeamsPage() {
                       <div className="flex items-center gap-2">
                         <Users className="h-4 w-4 text-muted-foreground" />
                         <span>
-                          {team.team_leader_id ? team.current_members + 1 : team.current_members} / {team.max_members}
+                          {team.current_members} / {team.max_members}
                         </span>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <TrendingUp className="h-4 w-4 text-primary" />
-                        <span className="font-medium">
-                          {team.total_points && team.total_points > 0 ? team.total_points : 0} pts
-                        </span>
+                        <span className="font-medium">{team.total_points || 0} pts</span>
                       </div>
                     </TableCell>
                     <TableCell>

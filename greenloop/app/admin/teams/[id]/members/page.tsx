@@ -61,51 +61,23 @@ export default function ManageMembersPage() {
 
       setTeam(teamData)
 
-      // Load team members
-      const { data: membersData } = await supabase
-        .from("team_members")
-        .select(`
-          user_id,
-          joined_at,
-          users!inner (
-            id,
-            full_name,
-            email,
-            total_points,
-            total_co2_saved,
-            verified_actions
-          )
-        `)
+      const { data: performanceData } = await supabase
+        .from("team_performance_summary")
+        .select("*")
         .eq("team_id", teamId)
+        .order("is_leader", { ascending: false })
+        .order("points", { ascending: false })
 
-      const formattedMembers: TeamMember[] = (membersData || []).map((member: any) => ({
-        id: member.users.id,
-        full_name: member.users.full_name,
-        email: member.users.email,
-        total_points: member.users.total_points || 0,
-        total_co2_saved: member.users.total_co2_saved || 0,
-        verified_actions: member.users.verified_actions || 0,
+      const formattedMembers: TeamMember[] = (performanceData || []).map((member: any) => ({
+        id: member.user_id,
+        full_name: `${member.first_name} ${member.last_name}`,
+        email: member.email,
+        total_points: member.points || 0,
+        total_co2_saved: member.total_co2_saved || 0,
+        verified_actions: member.verified_actions || 0,
         joined_at: member.joined_at,
-        is_leader: member.users.id === teamData.team_leader_id,
+        is_leader: member.is_leader,
       }))
-
-      // Add team leader if not already in members
-      if (teamData.team_leader_id && !formattedMembers.find((m) => m.id === teamData.team_leader_id)) {
-        const { data: leaderData } = await supabase.from("users").select("*").eq("id", teamData.team_leader_id).single()
-
-        if (leaderData) {
-          formattedMembers.unshift({
-            id: leaderData.id,
-            full_name: leaderData.full_name,
-            email: leaderData.email,
-            total_points: leaderData.total_points || 0,
-            total_co2_saved: leaderData.total_co2_saved || 0,
-            verified_actions: leaderData.verified_actions || 0,
-            joined_at: teamData.created_at,
-            is_leader: true,
-          })
-        }
-      }
 
       setMembers(formattedMembers)
     } catch (error) {
@@ -189,7 +161,7 @@ export default function ManageMembersPage() {
             <CardDescription>{team?.description}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Current Members</p>
                 <p className="text-2xl font-bold">
@@ -199,13 +171,19 @@ export default function ManageMembersPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Total Points</p>
                 <p className="text-2xl font-bold text-primary">
-                  {members.reduce((sum, member) => sum + member.total_points, 0)}
+                  {Math.round(members.reduce((sum, member) => sum + member.total_points, 0))}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total CO₂ Saved</p>
                 <p className="text-2xl font-bold text-green-600">
                   {Math.round(members.reduce((sum, member) => sum + member.total_co2_saved, 0))}kg
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Actions</p>
+                <p className="text-2xl font-bold text-accent">
+                  {members.reduce((sum, member) => sum + member.verified_actions, 0)}
                 </p>
               </div>
             </div>

@@ -38,24 +38,56 @@ export default async function TeamPage({ params }: TeamPageProps) {
   // Get user profile
   const { data: userProfile } = await supabase.from("users").select("*").eq("id", data.user.id).single()
 
-  // Get team details with members
-  const { data: team } = await supabase
+  const { data: teamPerformanceData } = await supabase
+    .from("team_performance_summary")
+    .select("*")
+    .eq("team_id", params.id)
+
+  if (!teamPerformanceData || teamPerformanceData.length === 0) {
+    redirect("/teams")
+  }
+
+  // Extract team info and members from performance data
+  const firstRecord = teamPerformanceData[0]
+  const team = {
+    id: params.id,
+    name: firstRecord.team_name,
+    description: "", // Will get from teams table
+    team_leader_id: teamPerformanceData.find((m) => m.is_leader)?.user_id,
+    total_points: firstRecord.team_total_points,
+    total_co2_saved: firstRecord.team_total_co2,
+    max_members: 50, // Default, will get from teams table
+    team_members: teamPerformanceData.map((member) => ({
+      id: member.user_id,
+      user_id: member.user_id,
+      role: member.is_leader ? "leader" : "member",
+      joined_at: member.joined_at,
+      users: {
+        id: member.user_id,
+        first_name: member.first_name,
+        last_name: member.last_name,
+        email: member.email,
+        avatar_url: null,
+        points: member.points,
+        total_co2_saved: member.total_co2_saved,
+        level: member.level,
+        department: member.department,
+        job_title: member.job_title,
+        verified_actions: member.verified_actions,
+      },
+    })),
+  }
+
+  // Get additional team details
+  const { data: teamDetails } = await supabase
     .from("teams")
-    .select(`
-      *,
-      team_members (
-        *,
-        users (
-          id, first_name, last_name, avatar_url, points, total_co2_saved, 
-          department, job_title, level
-        )
-      )
-    `)
+    .select("description, max_members, created_at, is_active")
     .eq("id", params.id)
     .single()
 
-  if (!team) {
-    redirect("/teams")
+  if (teamDetails) {
+    team.description = teamDetails.description
+    team.max_members = teamDetails.max_members
   }
 
   // Check if current user is a member
@@ -92,7 +124,6 @@ export default async function TeamPage({ params }: TeamPageProps) {
         .limit(10)
     : { data: [] }
 
-  // Calculate team stats
   const totalMembers = team.team_members?.length || 0
   const avgPointsPerMember = totalMembers > 0 ? Math.round(team.total_points / totalMembers) : 0
   const avgCO2PerMember = totalMembers > 0 ? (team.total_co2_saved / totalMembers).toFixed(1) : "0"
@@ -158,11 +189,11 @@ export default async function TeamPage({ params }: TeamPageProps) {
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center p-4 bg-background/50 rounded-lg">
-                  <div className="text-2xl font-bold text-primary">{team.total_points}</div>
+                  <div className="text-2xl font-bold text-primary">{Math.round(team.total_points)}</div>
                   <p className="text-sm text-muted-foreground">Total Points</p>
                 </div>
                 <div className="text-center p-4 bg-background/50 rounded-lg">
-                  <div className="text-2xl font-bold text-accent">{team.total_co2_saved}kg</div>
+                  <div className="text-2xl font-bold text-accent">{Math.round(team.total_co2_saved)}kg</div>
                   <p className="text-sm text-muted-foreground">CO₂ Saved</p>
                 </div>
                 <div className="text-center p-4 bg-background/50 rounded-lg">
@@ -224,7 +255,8 @@ export default async function TeamPage({ params }: TeamPageProps) {
                         <div className="text-right">
                           <div className="text-sm font-medium">{member.users?.points} pts</div>
                           <div className="text-xs text-muted-foreground">Level {member.users?.level}</div>
-                          <div className="text-xs text-accent">{member.users?.total_co2_saved}kg CO₂</div>
+                          <div className="text-xs text-accent">{Math.round(member.users?.total_co2_saved)}kg CO₂</div>
+                          <div className="text-xs text-muted-foreground">{member.users?.verified_actions} actions</div>
                         </div>
                       </div>
                     ))}
@@ -380,7 +412,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
                   <CardContent className="space-y-4">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Total Points</span>
-                      <span className="font-medium">{team.total_points}</span>
+                      <span className="font-medium">{Math.round(team.total_points)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Average per Member</span>
@@ -388,11 +420,20 @@ export default async function TeamPage({ params }: TeamPageProps) {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Total CO₂ Saved</span>
-                      <span className="font-medium">{team.total_co2_saved}kg</span>
+                      <span className="font-medium">{Math.round(team.total_co2_saved)}kg</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Average CO₂ per Member</span>
                       <span className="font-medium">{avgCO2PerMember}kg</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Actions Completed</span>
+                      <span className="font-medium">
+                        {team.team_members?.reduce(
+                          (sum: number, member: any) => sum + (member.users?.verified_actions || 0),
+                          0,
+                        )}
+                      </span>
                     </div>
                   </CardContent>
                 </Card>
@@ -404,7 +445,9 @@ export default async function TeamPage({ params }: TeamPageProps) {
                   <CardContent className="space-y-4">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Created</span>
-                      <span className="font-medium">{new Date(team.created_at).toLocaleDateString()}</span>
+                      <span className="font-medium">
+                        {teamDetails?.created_at ? new Date(teamDetails.created_at).toLocaleDateString() : "N/A"}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Members</span>
@@ -414,9 +457,16 @@ export default async function TeamPage({ params }: TeamPageProps) {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Status</span>
-                      <Badge variant={team.is_active ? "default" : "secondary"}>
-                        {team.is_active ? "Active" : "Inactive"}
+                      <Badge variant={teamDetails?.is_active ? "default" : "secondary"}>
+                        {teamDetails?.is_active ? "Active" : "Inactive"}
                       </Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Team Leader</span>
+                      <span className="font-medium">
+                        {team.team_members?.find((m: any) => m.role === "leader")?.users?.first_name}{" "}
+                        {team.team_members?.find((m: any) => m.role === "leader")?.users?.last_name}
+                      </span>
                     </div>
                   </CardContent>
                 </Card>
