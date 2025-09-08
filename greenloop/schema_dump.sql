@@ -1915,6 +1915,32 @@ CREATE POLICY "sustainability_actions_update_admin" ON "public"."sustainability_
 ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "system_settings_admin_delete" ON "public"."system_settings" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "system_settings_admin_insert" ON "public"."system_settings" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "system_settings_admin_select_all" ON "public"."system_settings" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "system_settings_admin_update" ON "public"."system_settings" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
 CREATE POLICY "system_settings_select_public" ON "public"."system_settings" FOR SELECT USING (("is_public" = true));
 
 
