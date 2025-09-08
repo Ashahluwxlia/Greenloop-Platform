@@ -1075,7 +1075,7 @@ ALTER TABLE "public"."system_settings" OWNER TO "postgres";
 
 CREATE OR REPLACE VIEW "public"."team_performance_summary" AS
  WITH "team_user_stats" AS (
-         SELECT "t"."id" AS "team_id",
+         SELECT DISTINCT "t"."id" AS "team_id",
             "t"."name" AS "team_name",
             "u"."id" AS "user_id",
             "u"."first_name",
@@ -1096,8 +1096,30 @@ CREATE OR REPLACE VIEW "public"."team_performance_summary" AS
                   WHERE (("ua"."user_id" = "u"."id") AND ("ua"."verification_status" = 'approved'::"text"))) AS "verified_actions"
            FROM (("public"."teams" "t"
              LEFT JOIN "public"."team_members" "tm" ON (("t"."id" = "tm"."team_id")))
-             LEFT JOIN "public"."users" "u" ON ((("u"."id" = "tm"."user_id") OR ("u"."id" = "t"."team_leader_id"))))
+             LEFT JOIN "public"."users" "u" ON (("u"."id" = "tm"."user_id")))
           WHERE (("t"."is_active" = true) AND ("u"."id" IS NOT NULL))
+        UNION
+         SELECT "t"."id" AS "team_id",
+            "t"."name" AS "team_name",
+            "u"."id" AS "user_id",
+            "u"."first_name",
+            "u"."last_name",
+            "u"."email",
+            "u"."points",
+            "u"."total_co2_saved",
+            "u"."level",
+            "u"."department",
+            "u"."job_title",
+            true AS "is_leader",
+            "t"."created_at" AS "joined_at",
+            ( SELECT "count"(*) AS "count"
+                   FROM "public"."user_actions" "ua"
+                  WHERE (("ua"."user_id" = "u"."id") AND ("ua"."verification_status" = 'approved'::"text"))) AS "verified_actions"
+           FROM ("public"."teams" "t"
+             JOIN "public"."users" "u" ON (("u"."id" = "t"."team_leader_id")))
+          WHERE (("t"."is_active" = true) AND (NOT (EXISTS ( SELECT 1
+                   FROM "public"."team_members" "tm"
+                  WHERE (("tm"."team_id" = "t"."id") AND ("tm"."user_id" = "t"."team_leader_id"))))))
         )
  SELECT "team_id",
     "team_name",
@@ -1123,6 +1145,10 @@ CREATE OR REPLACE VIEW "public"."team_performance_summary" AS
 
 
 ALTER VIEW "public"."team_performance_summary" OWNER TO "postgres";
+
+
+COMMENT ON VIEW "public"."team_performance_summary" IS 'Team performance summary view - fixed to prevent duplicate team leader entries';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."user_analytics" (
