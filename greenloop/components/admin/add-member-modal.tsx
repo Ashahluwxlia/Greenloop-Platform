@@ -47,29 +47,35 @@ export function AddMemberModal({ teamId }: AddMemberModalProps) {
 
   const loadAvailableUsers = async () => {
     try {
-      // Get users who are not already in this team
       const { data: existingMembers } = await supabase.from("team_members").select("user_id").eq("team_id", teamId)
 
       const existingMemberIds = existingMembers?.map((m) => m.user_id) || []
 
-      // Get team leader
+      // Get team leader (team leader can still join as a member if desired)
       const { data: team } = await supabase.from("teams").select("team_leader_id").eq("id", teamId).single()
 
+      // Only exclude users who are already members of THIS team
       const excludeIds = [...existingMemberIds]
-      if (team?.team_leader_id) {
-        excludeIds.push(team.team_leader_id)
-      }
 
-      const { data: users } = await supabase
+      let query = supabase
         .from("users")
         .select("id, first_name, last_name, email")
         .eq("is_active", true)
-        .not("id", "in", `(${excludeIds.join(",")})`)
         .order("first_name")
 
+      if (excludeIds.length > 0) {
+        query = query.not("id", "in", `(${excludeIds.join(",")})`)
+      }
+
+      const { data: users } = await query
       setAvailableUsers(users || [])
     } catch (error) {
       console.error("Failed to load available users:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load available users",
+        variant: "destructive",
+      })
     }
   }
 
@@ -86,11 +92,19 @@ export function AddMemberModal({ teamId }: AddMemberModalProps) {
         {
           team_id: teamId,
           user_id: selectedUser.id,
+          role: "member",
           joined_at: new Date().toISOString(),
         },
       ])
 
-      if (error) throw error
+      if (error) {
+        // Handle specific error for duplicate membership
+        if (error.code === "23505") {
+          // Unique constraint violation
+          throw new Error(`${selectedUser.first_name} ${selectedUser.last_name} is already a member of this team`)
+        }
+        throw error
+      }
 
       toast({
         title: "Success",
@@ -102,6 +116,7 @@ export function AddMemberModal({ teamId }: AddMemberModalProps) {
       setSearchTerm("")
       router.refresh()
     } catch (error: any) {
+      console.error("Add member error:", error)
       toast({
         title: "Error",
         description: error.message || "Failed to add member",
