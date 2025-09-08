@@ -10,8 +10,9 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowLeft, Users, Crown, Mail, Calendar, MoreHorizontal, UserMinus } from "lucide-react"
+import { ArrowLeft, Users, Crown, Mail, Calendar, MoreHorizontal, UserMinus, Trash2, UserPlus } from "lucide-react"
 import { AddMemberModal } from "@/components/admin/add-member-modal"
 import { RemoveMemberModal } from "@/components/admin/remove-member-modal"
 
@@ -51,6 +52,8 @@ export default function ManageMembersPage() {
   }>({})
   const [removeModalOpen, setRemoveModalOpen] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(null)
+  const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set())
+  const [bulkRemoveLoading, setBulkRemoveLoading] = useState(false)
   const supabase = createClient()
 
   const loadData = async () => {
@@ -156,6 +159,61 @@ export default function ManageMembersPage() {
     setOpenDropdown(null)
   }
 
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const selectableMembers = members.filter((member) => !member.is_leader).map((member) => member.id)
+      setSelectedMembers(new Set(selectableMembers))
+    } else {
+      setSelectedMembers(new Set())
+    }
+  }
+
+  const handleSelectMember = (memberId: string, checked: boolean) => {
+    const newSelected = new Set(selectedMembers)
+    if (checked) {
+      newSelected.add(memberId)
+    } else {
+      newSelected.delete(memberId)
+    }
+    setSelectedMembers(newSelected)
+  }
+
+  const handleBulkRemove = async () => {
+    if (selectedMembers.size === 0) return
+
+    setBulkRemoveLoading(true)
+    try {
+      const { error } = await supabase
+        .from("team_members")
+        .delete()
+        .eq("team_id", params.id as string)
+        .in("user_id", Array.from(selectedMembers))
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: `${selectedMembers.size} member(s) have been removed from the team`,
+      })
+
+      setSelectedMembers(new Set())
+      loadData()
+    } catch (error: any) {
+      console.error("Bulk remove error:", error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to remove members",
+        variant: "destructive",
+      })
+    } finally {
+      setBulkRemoveLoading(false)
+    }
+  }
+
+  const selectableMembers = members.filter((member) => !member.is_leader)
+  const allSelectableSelected = selectableMembers.length > 0 && selectedMembers.size === selectableMembers.length
+  const someSelected = selectedMembers.size > 0
+
   if (loading) {
     return (
       <main className="flex-1 p-8">
@@ -185,6 +243,31 @@ export default function ManageMembersPage() {
           </div>
           {team && <AddMemberModal teamId={team.id} onSuccess={loadData} />}
         </div>
+
+        {someSelected && (
+          <Card className="border-primary/20 bg-primary/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <UserPlus className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium">{selectedMembers.size} member(s) selected</p>
+                    <p className="text-sm text-muted-foreground">Choose an action to apply to selected members</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={() => setSelectedMembers(new Set())}>
+                    Clear Selection
+                  </Button>
+                  <Button variant="destructive" onClick={handleBulkRemove} disabled={bulkRemoveLoading}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {bulkRemoveLoading ? "Removing..." : `Remove ${selectedMembers.size} Member(s)`}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -230,6 +313,13 @@ export default function ManageMembersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[50px]">
+                    <Checkbox
+                      checked={allSelectableSelected}
+                      onCheckedChange={handleSelectAll}
+                      disabled={selectableMembers.length === 0}
+                    />
+                  </TableHead>
                   <TableHead>Member</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Points</TableHead>
@@ -242,6 +332,13 @@ export default function ManageMembersPage() {
               <TableBody>
                 {members.map((member) => (
                   <TableRow key={member.id}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedMembers.has(member.id)}
+                        onCheckedChange={(checked) => handleSelectMember(member.id, checked as boolean)}
+                        disabled={member.is_leader}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">

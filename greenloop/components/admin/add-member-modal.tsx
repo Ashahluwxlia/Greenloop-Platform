@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
@@ -36,6 +38,8 @@ export function AddMemberModal({ teamId, onSuccess }: AddMemberModalProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [availableUsers, setAvailableUsers] = useState<User[]>([])
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set())
+  const [bulkMode, setBulkMode] = useState(false)
   const { toast } = useToast()
   const router = useRouter()
   const supabase = createClient()
@@ -43,6 +47,10 @@ export function AddMemberModal({ teamId, onSuccess }: AddMemberModalProps) {
   useEffect(() => {
     if (open) {
       loadAvailableUsers()
+      setSelectedUser(null)
+      setSelectedUsers(new Set())
+      setBulkMode(false)
+      setSearchTerm("")
     }
   }, [open])
 
@@ -52,10 +60,8 @@ export function AddMemberModal({ teamId, onSuccess }: AddMemberModalProps) {
 
       const existingMemberIds = existingMembers?.map((m) => m.user_id) || []
 
-      // Get team leader (team leader can still join as a member if desired)
       const { data: team } = await supabase.from("teams").select("team_leader_id").eq("id", teamId).single()
 
-      // Only exclude users who are already members of THIS team
       const excludeIds = [...existingMemberIds]
 
       let query = supabase
@@ -84,49 +90,76 @@ export function AddMemberModal({ teamId, onSuccess }: AddMemberModalProps) {
     `${user.first_name} ${user.last_name} ${user.email}`.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
-  const handleAddMember = async () => {
-    if (!selectedUser) return
+  const handleSelectAllUsers = (checked: boolean | "indeterminate") => {
+    const isChecked = checked === true
+    if (isChecked) {
+      setSelectedUsers(new Set(filteredUsers.map((user) => user.id)))
+    } else {
+      setSelectedUsers(new Set())
+    }
+  }
+
+  const handleSelectUser = (userId: string, checked: boolean) => {
+    const newSelected = new Set(selectedUsers)
+    if (checked) {
+      newSelected.add(userId)
+    } else {
+      newSelected.delete(userId)
+    }
+    setSelectedUsers(newSelected)
+  }
+
+  const handleAddMembers = async () => {
+    const usersToAdd = bulkMode ? Array.from(selectedUsers) : selectedUser ? [selectedUser.id] : []
+
+    if (usersToAdd.length === 0) return
 
     setLoading(true)
     try {
-      const { error } = await supabase.from("team_members").insert([
-        {
-          team_id: teamId,
-          user_id: selectedUser.id,
-          role: "member",
-          joined_at: new Date().toISOString(),
-        },
-      ])
+      const membersToInsert = usersToAdd.map((userId) => ({
+        team_id: teamId,
+        user_id: userId,
+        role: "member",
+        joined_at: new Date().toISOString(),
+      }))
+
+      const { error } = await supabase.from("team_members").insert(membersToInsert)
 
       if (error) {
-        // Handle specific error for duplicate membership
         if (error.code === "23505") {
-          // Unique constraint violation
-          throw new Error(`${selectedUser.first_name} ${selectedUser.last_name} is already a member of this team`)
+          throw new Error("One or more selected users are already members of this team")
         }
         throw error
       }
 
+      const successMessage = bulkMode
+        ? `${usersToAdd.length} member(s) have been added to the team`
+        : `${selectedUser?.first_name} ${selectedUser?.last_name} has been added to the team`
+
       toast({
         title: "Success",
-        description: `${selectedUser.first_name} ${selectedUser.last_name} has been added to the team`,
+        description: successMessage,
       })
 
       setOpen(false)
       setSelectedUser(null)
+      setSelectedUsers(new Set())
+      setBulkMode(false)
       setSearchTerm("")
       onSuccess?.()
     } catch (error: any) {
       console.error("Add member error:", error)
       toast({
         title: "Error",
-        description: error.message || "Failed to add member",
+        description: error.message || "Failed to add member(s)",
         variant: "destructive",
       })
     } finally {
       setLoading(false)
     }
   }
+
+  const allFilteredSelected = filteredUsers.length > 0 && selectedUsers.size === filteredUsers.length
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -136,13 +169,29 @@ export function AddMemberModal({ teamId, onSuccess }: AddMemberModalProps) {
           Add Member
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Add Team Member</DialogTitle>
-          <DialogDescription>Search and select a user to add to this team.</DialogDescription>
+          <DialogTitle>Add Team Member(s)</DialogTitle>
+          <DialogDescription>
+            {bulkMode ? "Select multiple users to add to this team." : "Search and select a user to add to this team."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="bulk-mode"
+                checked={bulkMode}
+                onCheckedChange={(checked) => setBulkMode(checked === true)}
+              />
+              <Label htmlFor="bulk-mode" className="text-sm font-medium">
+                Bulk add mode
+              </Label>
+            </div>
+            {bulkMode && selectedUsers.size > 0 && <Badge variant="secondary">{selectedUsers.size} selected</Badge>}
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="search">Search Users</Label>
             <div className="relative">
@@ -157,17 +206,43 @@ export function AddMemberModal({ teamId, onSuccess }: AddMemberModalProps) {
             </div>
           </div>
 
+          {bulkMode && filteredUsers.length > 0 && (
+            <div className="flex items-center space-x-2 p-2 border rounded-lg bg-muted/50">
+              <Checkbox checked={allFilteredSelected} onCheckedChange={handleSelectAllUsers} />
+              <Label className="text-sm">Select all {filteredUsers.length} user(s)</Label>
+            </div>
+          )}
+
           <div className="max-h-60 overflow-y-auto space-y-2">
             {filteredUsers.length > 0 ? (
               filteredUsers.map((user) => (
                 <div
                   key={user.id}
                   className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                    selectedUser?.id === user.id ? "border-primary bg-primary/5" : "hover:bg-muted"
+                    bulkMode
+                      ? selectedUsers.has(user.id)
+                        ? "border-primary bg-primary/5"
+                        : "hover:bg-muted"
+                      : selectedUser?.id === user.id
+                        ? "border-primary bg-primary/5"
+                        : "hover:bg-muted"
                   }`}
-                  onClick={() => setSelectedUser(user)}
+                  onClick={() => {
+                    if (bulkMode) {
+                      handleSelectUser(user.id, !selectedUsers.has(user.id))
+                    } else {
+                      setSelectedUser(user)
+                    }
+                  }}
                 >
                   <div className="flex items-center gap-3">
+                    {bulkMode && (
+                      <Checkbox
+                        checked={selectedUsers.has(user.id)}
+                        onCheckedChange={(checked) => handleSelectUser(user.id, checked === true)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )}
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">
                       {user.first_name[0]}
                       {user.last_name[0]}
@@ -195,8 +270,11 @@ export function AddMemberModal({ teamId, onSuccess }: AddMemberModalProps) {
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleAddMember} disabled={!selectedUser || loading}>
-            {loading ? "Adding..." : "Add Member"}
+          <Button
+            onClick={handleAddMembers}
+            disabled={loading || (bulkMode ? selectedUsers.size === 0 : !selectedUser)}
+          >
+            {loading ? "Adding..." : bulkMode ? `Add ${selectedUsers.size} Member(s)` : "Add Member"}
           </Button>
         </DialogFooter>
       </DialogContent>
