@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
@@ -9,9 +11,9 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowLeft, Users, Crown, Mail, Calendar } from "lucide-react"
-import { MemberActionDropdown } from "@/components/admin/member-action-dropdown"
+import { ArrowLeft, Users, Crown, Mail, Calendar, MoreHorizontal, UserMinus } from "lucide-react"
 import { AddMemberModal } from "@/components/admin/add-member-modal"
+import { RemoveMemberModal } from "@/components/admin/remove-member-modal"
 
 interface TeamMember {
   id: string
@@ -40,13 +42,21 @@ export default function ManageMembersPage() {
   const [team, setTeam] = useState<Team | null>(null)
   const [members, setMembers] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
+  const [dropdownPosition, setDropdownPosition] = useState<{
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+  }>({})
+  const [removeModalOpen, setRemoveModalOpen] = useState(false)
+  const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(null)
   const supabase = createClient()
 
   const loadData = async () => {
     try {
       const teamId = params.id as string
 
-      // Load team details
       const { data: teamData } = await supabase.from("teams").select("*").eq("id", teamId).single()
 
       if (!teamData) {
@@ -96,31 +106,54 @@ export default function ManageMembersPage() {
     loadData()
   }, [params.id])
 
-  const handleRemoveMember = async (memberId: string) => {
-    if (!team) return
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setOpenDropdown(null)
+    }
 
-    if (!confirm("Are you sure you want to remove this member from the team?")) {
+    if (openDropdown) {
+      document.addEventListener("click", handleClickOutside)
+      return () => document.removeEventListener("click", handleClickOutside)
+    }
+  }, [openDropdown])
+
+  const toggleDropdown = (memberId: string, event?: React.MouseEvent) => {
+    if (openDropdown === memberId) {
+      setOpenDropdown(null)
       return
     }
 
-    try {
-      const { error } = await supabase.from("team_members").delete().eq("team_id", team.id).eq("user_id", memberId)
+    if (event) {
+      const rect = (event.target as HTMLElement).getBoundingClientRect()
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      const dropdownWidth = 192
+      const dropdownHeight = 120
 
-      if (error) throw error
+      const position: { top?: number; bottom?: number; left?: number; right?: number } = {}
 
-      toast({
-        title: "Success",
-        description: "Member removed from team successfully",
-      })
+      if (rect.right + dropdownWidth > viewportWidth) {
+        position.right = viewportWidth - rect.left
+      } else {
+        position.left = rect.right
+      }
 
-      loadData()
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to remove member",
-        variant: "destructive",
-      })
+      if (rect.bottom + dropdownHeight > viewportHeight) {
+        position.bottom = viewportHeight - rect.top
+      } else {
+        position.top = rect.bottom
+      }
+
+      setDropdownPosition(position)
     }
+
+    setOpenDropdown(memberId)
+  }
+
+  const handleRemoveMember = (member: TeamMember) => {
+    setMemberToRemove(member)
+    setRemoveModalOpen(true)
+    setOpenDropdown(null)
   }
 
   if (loading) {
@@ -134,7 +167,6 @@ export default function ManageMembersPage() {
   return (
     <main className="flex-1 p-8">
       <div className="space-y-8">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" onClick={() => router.push("/admin/teams")}>
@@ -151,10 +183,9 @@ export default function ManageMembersPage() {
               </p>
             </div>
           </div>
-          {team && <AddMemberModal teamId={team.id} />}
+          {team && <AddMemberModal teamId={team.id} onSuccess={loadData} />}
         </div>
 
-        {/* Team Info */}
         <Card>
           <CardHeader>
             <CardTitle>Team Information</CardTitle>
@@ -190,7 +221,6 @@ export default function ManageMembersPage() {
           </CardContent>
         </Card>
 
-        {/* Members Table */}
         <Card>
           <CardHeader>
             <CardTitle>Team Members ({members.length})</CardTitle>
@@ -258,11 +288,44 @@ export default function ManageMembersPage() {
                     </TableCell>
                     <TableCell>
                       {!member.is_leader && team ? (
-                        <MemberActionDropdown
-                          memberId={member.id}
-                          teamId={team.id}
-                          memberName={member.full_name && member.email}
-                        />
+                        <div className="relative">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleDropdown(member.id, e)
+                            }}
+                            className="p-2 hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+
+                          {openDropdown === member.id && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
+                              <div
+                                className="fixed w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50"
+                                style={{
+                                  top: dropdownPosition.top,
+                                  bottom: dropdownPosition.bottom,
+                                  left: dropdownPosition.left,
+                                  right: dropdownPosition.right,
+                                }}
+                              >
+                                <div className="py-1">
+                                  <button
+                                    onClick={() => {
+                                      handleRemoveMember(member)
+                                    }}
+                                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                  >
+                                    <UserMinus className="h-4 w-4" />
+                                    Remove Member
+                                  </button>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-muted-foreground text-sm">Team Leader</span>
                       )}
@@ -274,6 +337,25 @@ export default function ManageMembersPage() {
           </CardContent>
         </Card>
       </div>
+
+      {team && (
+        <RemoveMemberModal
+          member={
+            memberToRemove
+              ? {
+                  id: memberToRemove.id,
+                  full_name: memberToRemove.full_name,
+                  email: memberToRemove.email,
+                  role: memberToRemove.is_leader ? "Team Leader" : "Member",
+                }
+              : null
+          }
+          teamId={team.id}
+          open={removeModalOpen}
+          onOpenChange={setRemoveModalOpen}
+          onSuccess={loadData}
+        />
+      )}
     </main>
   )
 }

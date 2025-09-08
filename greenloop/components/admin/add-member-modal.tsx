@@ -27,9 +27,10 @@ interface User {
 
 interface AddMemberModalProps {
   teamId: string
+  onSuccess?: () => void
 }
 
-export function AddMemberModal({ teamId }: AddMemberModalProps) {
+export function AddMemberModal({ teamId, onSuccess }: AddMemberModalProps) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
@@ -114,7 +115,7 @@ export function AddMemberModal({ teamId }: AddMemberModalProps) {
       setOpen(false)
       setSelectedUser(null)
       setSearchTerm("")
-      router.refresh()
+      onSuccess?.()
     } catch (error: any) {
       console.error("Add member error:", error)
       toast({
