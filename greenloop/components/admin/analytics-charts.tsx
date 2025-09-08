@@ -198,9 +198,7 @@ export default function AnalyticsCharts({
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalUsersCount || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                <span className="text-primary">+{activeUsersCount || 0}</span> active this week
-              </p>
+              <p className="text-xs text-muted-foreground">Registered platform members</p>
             </CardContent>
           </Card>
 

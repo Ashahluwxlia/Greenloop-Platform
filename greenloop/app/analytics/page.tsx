@@ -105,11 +105,20 @@ export default async function AnalyticsPage() {
 
   function getCategoryColor(category: string) {
     const colors: { [key: string]: string } = {
-      Energy: "#0891b2",
-      Transportation: "#d97706",
-      Waste: "#34d399",
-      Water: "#fbbf24",
-      Other: "#9ca3af",
+      Energy: "#0891b2", // cyan-600
+      Transportation: "#d97706", // amber-600
+      Waste: "#34d399", // emerald-400
+      Water: "#fbbf24", // amber-400
+      Food: "#f87171", // red-400
+      "Food & Diet": "#ef4444", // red-500
+      "Office Practices": "#8b5cf6", // violet-500
+      Office: "#8b5cf6", // violet-500
+      "Home & Garden": "#10b981", // emerald-500
+      Community: "#f59e0b", // amber-500
+      Digital: "#06b6d4", // cyan-500
+      Shopping: "#ec4899", // pink-500
+      "Health & Wellness": "#84cc16", // lime-500
+      Other: "#9ca3af", // gray-400
     }
     return colors[category] || colors["Other"]
   }
@@ -262,6 +271,108 @@ export default async function AnalyticsPage() {
                   <CardContent>
                     <div className="text-2xl font-bold">{categoryData.find((c) => c.name === "Waste")?.co2 || 0}kg</div>
                     <p className="text-xs text-muted-foreground">CO₂ from waste actions</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Food Saved</CardTitle>
+                    <Leaf className="h-4 w-4 text-red-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{categoryData.find((c) => c.name === "Food")?.co2 || 0}kg</div>
+                    <p className="text-xs text-muted-foreground">CO₂ from food actions</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Food & Diet Saved</CardTitle>
+                    <Award className="h-4 w-4 text-red-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {categoryData.find((c) => c.name === "Food & Diet")?.co2 || 0}kg
+                    </div>
+                    <p className="text-xs text-muted-foreground">CO₂ from food & diet actions</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Office Practices Saved</CardTitle>
+                    <Zap className="h-4 w-4 text-violet-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {categoryData.find((c) => c.name === "Office Practices")?.co2 || 0}kg
+                    </div>
+                    <p className="text-xs text-muted-foreground">CO₂ from office practices actions</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Home & Garden Saved</CardTitle>
+                    <Leaf className="h-4 w-4 text-emerald-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {categoryData.find((c) => c.name === "Home & Garden")?.co2 || 0}kg
+                    </div>
+                    <p className="text-xs text-muted-foreground">CO₂ from home & garden actions</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Community Saved</CardTitle>
+                    <Award className="h-4 w-4 text-amber-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {categoryData.find((c) => c.name === "Community")?.co2 || 0}kg
+                    </div>
+                    <p className="text-xs text-muted-foreground">CO₂ from community actions</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Digital Saved</CardTitle>
+                    <Zap className="h-4 w-4 text-cyan-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {categoryData.find((c) => c.name === "Digital")?.co2 || 0}kg
+                    </div>
+                    <p className="text-xs text-muted-foreground">CO₂ from digital actions</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Shopping Saved</CardTitle>
+                    <Recycle className="h-4 w-4 text-pink-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {categoryData.find((c) => c.name === "Shopping")?.co2 || 0}kg
+                    </div>
+                    <p className="text-xs text-muted-foreground">CO₂ from shopping actions</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Health & Wellness Saved</CardTitle>
+                    <Award className="h-4 w-4 text-lime-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {categoryData.find((c) => c.name === "Health & Wellness")?.co2 || 0}kg
+                    </div>
+                    <p className="text-xs text-muted-foreground">CO₂ from health & wellness actions</p>
                   </CardContent>
                 </Card>
               </div>

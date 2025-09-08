@@ -56,12 +56,20 @@ export default async function AdminAnalyticsPage() {
 
   function getCategoryColor(category: string) {
     const colors: { [key: string]: string } = {
-      Energy: "#0891b2",
-      Transportation: "#d97706",
-      Waste: "#34d399",
-      Water: "#fbbf24",
-      Food: "#f87171",
-      Other: "#9ca3af",
+      Energy: "#0891b2", // cyan-600
+      Transportation: "#d97706", // amber-600
+      Waste: "#34d399", // emerald-400
+      Water: "#fbbf24", // amber-400
+      Food: "#f87171", // red-400
+      "Food & Diet": "#ef4444", // red-500
+      "Office Practices": "#8b5cf6", // violet-500
+      Office: "#8b5cf6", // violet-500
+      "Home & Garden": "#10b981", // emerald-500
+      Community: "#f59e0b", // amber-500
+      Digital: "#06b6d4", // cyan-500
+      Shopping: "#ec4899", // pink-500
+      "Health & Wellness": "#84cc16", // lime-500
+      Other: "#9ca3af", // gray-400
     }
     return colors[category] || colors["Other"]
   }

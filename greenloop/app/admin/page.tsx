@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { DashboardCharts } from "@/components/admin/dashboard-charts"
 import { RefreshButton } from "@/components/admin/refresh-button"
 import {
@@ -62,22 +61,11 @@ export default async function AdminDashboard() {
 
   const categoryData =
     categoryBreakdown
-      ?.filter((category) => (category.percentage || 0) > 0)
+      ?.filter((category) => (category.action_count || 0) > 0)
       .map((category, index) => ({
         name: category.category_name,
-        value: category.percentage || 0,
-        color: [
-          "#0891b2",
-          "#d97706",
-          "#34d399",
-          "#fbbf24",
-          "#f87171",
-          "#8b5cf6",
-          "#06b6d4",
-          "#10b981",
-          "#f59e0b",
-          "#ef4444",
-        ][index % 10],
+        value: category.action_count || 0, // Use action_count instead of percentage
+        color: getCategoryColor(category.category_name),
       })) || []
 
   const weeklyData =
@@ -88,20 +76,8 @@ export default async function AdminDashboard() {
 
   const userGrowth = dashboardStats?.new_users_30d || 0
   const actionGrowth = dashboardStats?.actions_30d || 0
-  const activeUserPercentage =
-    dashboardStats?.active_users && dashboardStats?.active_users > 0
-      ? Math.round((dashboardStats.active_users_7d / dashboardStats.active_users) * 100)
-      : 0
 
   const enhancedUserStats = dashboardStats
-    ? {
-        total_users: dashboardStats.active_users || 0,
-        active_users: dashboardStats.active_users_7d || 0,
-        admin_users: dashboardStats.total_verified_actions || 0,
-        avg_points: Math.round(dashboardStats.total_points_awarded / Math.max(dashboardStats.active_users, 1)) || 0,
-        total_co2_saved: dashboardStats.total_co2_saved || 0,
-      }
-    : undefined
 
   const enhancedChallengeStats = dashboardStats
     ? {
@@ -120,6 +96,26 @@ export default async function AdminDashboard() {
         top_performing_teams: topTeams || [],
       }
     : undefined
+
+  function getCategoryColor(category: string) {
+    const colors: { [key: string]: string } = {
+      Energy: "#0891b2", // cyan-600
+      Transportation: "#d97706", // amber-600
+      Waste: "#34d399", // emerald-400
+      Water: "#fbbf24", // amber-400
+      Food: "#f87171", // red-400
+      "Food & Diet": "#ef4444", // red-500
+      "Office Practices": "#8b5cf6", // violet-500
+      Office: "#8b5cf6", // violet-500
+      "Home & Garden": "#10b981", // emerald-500
+      Community: "#f59e0b", // amber-500
+      Digital: "#06b6d4", // cyan-500
+      Shopping: "#ec4899", // pink-500
+      "Health & Wellness": "#84cc16", // lime-500
+      Other: "#9ca3af", // gray-400
+    }
+    return colors[category] || colors["Other"]
+  }
 
   return (
     <div className="p-8">
@@ -150,8 +146,7 @@ export default async function AdminDashboard() {
                   <ArrowUpRight className="h-3 w-3 mr-1" />+{userGrowth} this month
                 </div>
               </div>
-              <Progress value={activeUserPercentage} className="mt-3" />
-              <p className="text-xs text-muted-foreground mt-1">{activeUserPercentage}% active this week</p>
+              <p className="text-xs text-muted-foreground mt-1">Registered platform members</p>
             </CardContent>
           </Card>
 
