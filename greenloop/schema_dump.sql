@@ -269,6 +269,58 @@ $$;
 ALTER FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p_action" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+  new_total_points INTEGER;
+  new_total_co2 DECIMAL(10,2);
+  current_team_leader_id UUID;
+BEGIN
+  -- Get team leader ID with proper table qualification
+  SELECT t.team_leader_id INTO current_team_leader_id
+  FROM public.teams t
+  WHERE t.id = target_team_id;
+
+  -- Calculate team totals including both team members AND team leader
+  WITH team_users AS (
+    -- Get all team members
+    SELECT u.id, u.points, u.total_co2_saved
+    FROM public.users u
+    INNER JOIN public.team_members tm ON u.id = tm.user_id
+    WHERE tm.team_id = target_team_id
+    
+    UNION
+    
+    -- Add team leader (if not already included as member)
+    SELECT u.id, u.points, u.total_co2_saved
+    FROM public.users u
+    WHERE u.id = current_team_leader_id
+    AND NOT EXISTS (
+      SELECT 1 FROM public.team_members tm 
+      WHERE tm.team_id = target_team_id AND tm.user_id = current_team_leader_id
+    )
+  )
+  SELECT 
+    COALESCE(SUM(points), 0),
+    COALESCE(SUM(total_co2_saved), 0)
+  INTO new_total_points, new_total_co2
+  FROM team_users;
+
+  -- Update team record
+  UPDATE public.teams
+  SET 
+    total_points = new_total_points,
+    total_co2_saved = new_total_co2,
+    updated_at = NOW()
+  WHERE id = target_team_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."simple_update_user_co2_savings"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -370,75 +422,40 @@ DECLARE
   team_id_to_update UUID;
   new_total_points INTEGER;
   new_total_co2 DECIMAL(10,2);
-  team_leader_id UUID;
+  current_team_leader_id UUID;
 BEGIN
   -- Get team ID from different trigger sources
   IF TG_TABLE_NAME = 'user_actions' THEN
-    SELECT tm.team_id INTO team_id_to_update
-    FROM public.team_members tm
-    WHERE tm.user_id = NEW.user_id;
+    -- Get all teams this user belongs to (since users can be in multiple teams)
+    FOR team_id_to_update IN 
+      SELECT tm.team_id FROM public.team_members tm WHERE tm.user_id = NEW.user_id
+      UNION
+      SELECT t.id FROM public.teams t WHERE t.team_leader_id = NEW.user_id
+    LOOP
+      -- Update each team this user belongs to
+      PERFORM public.recalculate_single_team_stats(team_id_to_update);
+    END LOOP;
     
-    -- Also check if user is a team leader
-    IF team_id_to_update IS NULL THEN
-      SELECT t.id INTO team_id_to_update
-      FROM public.teams t
-      WHERE t.team_leader_id = NEW.user_id;
-    END IF;
+    RETURN NEW;
   ELSIF TG_TABLE_NAME = 'team_members' THEN
     team_id_to_update := COALESCE(NEW.team_id, OLD.team_id);
   ELSIF TG_TABLE_NAME = 'users' THEN
-    -- Check if updated user is a team leader
-    SELECT t.id INTO team_id_to_update
-    FROM public.teams t
-    WHERE t.team_leader_id = NEW.id;
+    -- Get all teams this user is associated with
+    FOR team_id_to_update IN 
+      SELECT tm.team_id FROM public.team_members tm WHERE tm.user_id = NEW.id
+      UNION
+      SELECT t.id FROM public.teams t WHERE t.team_leader_id = NEW.id
+    LOOP
+      -- Update each team this user belongs to
+      PERFORM public.recalculate_single_team_stats(team_id_to_update);
+    END LOOP;
     
-    -- Also check if user is a team member
-    IF team_id_to_update IS NULL THEN
-      SELECT tm.team_id INTO team_id_to_update
-      FROM public.team_members tm
-      WHERE tm.user_id = NEW.id;
-    END IF;
+    RETURN NEW;
   END IF;
 
-  -- Only proceed if user is associated with a team
+  -- For team_members table changes, update the specific team
   IF team_id_to_update IS NOT NULL THEN
-    -- Get team leader ID
-    SELECT team_leader_id INTO team_leader_id
-    FROM public.teams
-    WHERE id = team_id_to_update;
-
-    -- Calculate team totals including both team members AND team leader
-    WITH team_users AS (
-      -- Get all team members
-      SELECT u.id, u.points, u.total_co2_saved
-      FROM public.users u
-      INNER JOIN public.team_members tm ON u.id = tm.user_id
-      WHERE tm.team_id = team_id_to_update
-      
-      UNION
-      
-      -- Add team leader (if not already included as member)
-      SELECT u.id, u.points, u.total_co2_saved
-      FROM public.users u
-      WHERE u.id = team_leader_id
-      AND NOT EXISTS (
-        SELECT 1 FROM public.team_members tm 
-        WHERE tm.team_id = team_id_to_update AND tm.user_id = team_leader_id
-      )
-    )
-    SELECT 
-      COALESCE(SUM(points), 0),
-      COALESCE(SUM(total_co2_saved), 0)
-    INTO new_total_points, new_total_co2
-    FROM team_users;
-
-    -- Update team record
-    UPDATE public.teams
-    SET 
-      total_points = new_total_points,
-      total_co2_saved = new_total_co2,
-      updated_at = NOW()
-    WHERE id = team_id_to_update;
+    PERFORM public.recalculate_single_team_stats(team_id_to_update);
   END IF;
 
   RETURN COALESCE(NEW, OLD);
@@ -1134,6 +1151,31 @@ CREATE TABLE IF NOT EXISTS "public"."user_badges" (
 ALTER TABLE "public"."user_badges" OWNER TO "postgres";
 
 
+CREATE OR REPLACE VIEW "public"."user_team_memberships" AS
+ SELECT "u"."id" AS "user_id",
+    "u"."first_name",
+    "u"."last_name",
+    "u"."email",
+    "t"."id" AS "team_id",
+    "t"."name" AS "team_name",
+    "t"."description" AS "team_description",
+        CASE
+            WHEN ("u"."id" = "t"."team_leader_id") THEN 'leader'::"text"
+            ELSE 'member'::"text"
+        END AS "role",
+    COALESCE("tm"."joined_at", "t"."created_at") AS "joined_at",
+    "t"."total_points" AS "team_total_points",
+    "t"."total_co2_saved" AS "team_total_co2"
+   FROM (("public"."users" "u"
+     LEFT JOIN "public"."team_members" "tm" ON (("u"."id" = "tm"."user_id")))
+     LEFT JOIN "public"."teams" "t" ON ((("t"."id" = "tm"."team_id") OR ("t"."team_leader_id" = "u"."id"))))
+  WHERE ("t"."is_active" = true)
+  ORDER BY "u"."id", "t"."name";
+
+
+ALTER VIEW "public"."user_team_memberships" OWNER TO "postgres";
+
+
 ALTER TABLE ONLY "public"."action_attachments"
     ADD CONSTRAINT "action_attachments_pkey" PRIMARY KEY ("id");
 
@@ -1231,6 +1273,11 @@ ALTER TABLE ONLY "public"."team_members"
 
 ALTER TABLE ONLY "public"."team_members"
     ADD CONSTRAINT "team_members_team_id_user_id_key" UNIQUE ("team_id", "user_id");
+
+
+
+ALTER TABLE ONLY "public"."team_members"
+    ADD CONSTRAINT "team_members_team_user_unique" UNIQUE ("team_id", "user_id");
 
 
 
@@ -1388,6 +1435,10 @@ CREATE INDEX "idx_team_members_team_id" ON "public"."team_members" USING "btree"
 
 
 CREATE INDEX "idx_team_members_team_role" ON "public"."team_members" USING "btree" ("team_id", "role");
+
+
+
+CREATE INDEX "idx_team_members_team_user" ON "public"."team_members" USING "btree" ("team_id", "user_id");
 
 
 
@@ -2183,6 +2234,12 @@ GRANT ALL ON FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p
 
 
 
+GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "anon";
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "service_role";
@@ -2405,6 +2462,12 @@ GRANT ALL ON TABLE "public"."user_analytics" TO "service_role";
 GRANT ALL ON TABLE "public"."user_badges" TO "anon";
 GRANT ALL ON TABLE "public"."user_badges" TO "authenticated";
 GRANT ALL ON TABLE "public"."user_badges" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."user_team_memberships" TO "anon";
+GRANT ALL ON TABLE "public"."user_team_memberships" TO "authenticated";
+GRANT ALL ON TABLE "public"."user_team_memberships" TO "service_role";
 
 
 
