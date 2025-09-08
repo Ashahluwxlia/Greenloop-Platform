@@ -134,6 +134,16 @@ export function Navigation({ user }: NavigationProps) {
             </div>
           )}
 
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSignOut}
+            className="hidden md:flex items-center gap-2 bg-transparent"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </Button>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-8 w-8 rounded-full">

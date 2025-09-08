@@ -30,9 +30,6 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
-        options: {
-          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/dashboard`,
-        },
       })
       if (error) throw error
       router.push("/dashboard")
@@ -44,19 +41,12 @@ export default function LoginPage() {
   }
 
   const handleMicrosoftSSO = async () => {
-    const supabase = createClient()
     setIsLoading(true)
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "azure",
-        options: {
-          scopes: "email profile",
-          redirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/dashboard`,
-        },
-      })
-      if (error) throw error
+      // Redirect to custom Microsoft OAuth endpoint
+      window.location.href = "/auth/microsoft"
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "Microsoft SSO failed")
       setIsLoading(false)
