@@ -1,12 +1,10 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
-import { cn } from "@/lib/utils"
 import { format } from "date-fns"
 import {
   XAxis,
@@ -22,7 +20,8 @@ import {
   AreaChart,
   Area,
 } from "recharts"
-import { BarChart3, Users, TrendingUp, Download, CalendarIcon, Target, Award, Activity } from "lucide-react"
+import { BarChart3, Users, TrendingUp, Download, Target, Award, Activity, Crown, Medal, Leaf } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 import type { DateRange } from "react-day-picker"
 
 interface AnalyticsChartsProps {
@@ -58,6 +57,98 @@ export default function AnalyticsCharts({
     from: new Date(2025, 5, 1), // June 1, 2025
     to: new Date(2025, 8, 7), // September 7, 2025
   })
+
+  const [topByPoints, setTopByPoints] = useState<any[]>([])
+  const [topByCO2, setTopByCO2] = useState<any[]>([])
+  const [topByActionsWithCount, setTopByActionsWithCount] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchLeaderboardData = async () => {
+      const supabase = createClient()
+
+      try {
+        // Get top users by points
+        const { data: pointsData } = await supabase
+          .from("users")
+          .select("id, first_name, last_name, department, points, level, total_co2_saved, avatar_url")
+          .eq("is_active", true)
+          .order("points", { ascending: false })
+          .limit(10)
+
+        // Get top users by CO2 saved
+        const { data: co2Data } = await supabase
+          .from("users")
+          .select("id, first_name, last_name, department, points, level, total_co2_saved, avatar_url")
+          .eq("is_active", true)
+          .order("total_co2_saved", { ascending: false })
+          .limit(10)
+
+        // Get top users by actions this month
+        const oneMonthAgo = new Date()
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+
+        const { data: monthlyActions } = await supabase
+          .from("user_actions")
+          .select("user_id")
+          .eq("verification_status", "approved")
+          .gte("completed_at", oneMonthAgo.toISOString())
+
+        // Count actions per user
+        const actionCounts = monthlyActions?.reduce(
+          (acc, action) => {
+            acc[action.user_id] = (acc[action.user_id] || 0) + 1
+            return acc
+          },
+          {} as Record<string, number>,
+        )
+
+        // Get user details for top performers this month
+        const topUserIds = Object.entries(actionCounts || {})
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 10)
+          .map(([userId]) => userId)
+
+        const { data: actionsData } = topUserIds.length
+          ? await supabase
+              .from("users")
+              .select("id, first_name, last_name, department, points, level, total_co2_saved, avatar_url")
+              .in("id", topUserIds)
+          : { data: [] }
+
+        // Sort by action count
+        const actionsWithCount = actionsData
+          ?.map((user) => ({
+            ...user,
+            action_count: actionCounts?.[user.id] || 0,
+          }))
+          .sort((a, b) => b.action_count - a.action_count)
+
+        setTopByPoints(pointsData || [])
+        setTopByCO2(co2Data || [])
+        setTopByActionsWithCount(actionsWithCount || [])
+      } catch (error) {
+        console.error("Error fetching leaderboard data:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchLeaderboardData()
+  }, [])
+
+  const getRankIcon = (rank: number) => {
+    switch (rank) {
+      case 1:
+        return <Crown className="h-5 w-5 text-yellow-500" />
+      case 2:
+        return <Medal className="h-5 w-5 text-gray-400" />
+      case 3:
+        return <Medal className="h-5 w-5 text-amber-600" />
+      default:
+        return <span className="text-sm font-bold text-muted-foreground">#{rank}</span>
+    }
+  }
 
   const filteredCategoryBreakdown = categoryBreakdown
     .filter((category) => category.value > 0)
@@ -154,34 +245,6 @@ export default function AnalyticsCharts({
             </p>
           </div>
           <div className="flex gap-3">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className={cn("w-[280px] justify-start text-left font-normal")}>
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {dateRange?.from ? (
-                    dateRange.to ? (
-                      <>
-                        {format(dateRange.from, "MMM dd, yyyy")} - {format(dateRange.to, "MMM dd, yyyy")}
-                      </>
-                    ) : (
-                      format(dateRange.from, "MMM dd, yyyy")
-                    )
-                  ) : (
-                    <span>Pick a date range</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  initialFocus
-                  mode="range"
-                  defaultMonth={dateRange?.from}
-                  selected={dateRange}
-                  onSelect={handleDateRangeChange}
-                  numberOfMonths={2}
-                />
-              </PopoverContent>
-            </Popover>
             <Button onClick={handleExportReport}>
               <Download className="h-4 w-4 mr-2" />
               Export Report
@@ -350,76 +413,189 @@ export default function AnalyticsCharts({
           </TabsContent>
 
           <TabsContent value="users" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Top Performing Users</CardTitle>
-                <CardDescription>Users with highest sustainability impact</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {teamPerformance && teamPerformance.length > 0 ? (
-                    teamPerformance.map((user: any, index: number) => (
-                      <div
-                        key={user.user_id || index}
-                        className="flex items-center justify-between p-4 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                              index === 0
-                                ? "bg-yellow-100 text-yellow-700"
-                                : index === 1
-                                  ? "bg-gray-100 text-gray-700"
-                                  : index === 2
-                                    ? "bg-orange-100 text-orange-700"
-                                    : "bg-primary/10 text-primary"
-                            }`}
-                          >
-                            <span className="text-sm font-bold">#{index + 1}</span>
+            <Tabs defaultValue="points" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="points">Points</TabsTrigger>
+                <TabsTrigger value="co2">CO₂ Saved</TabsTrigger>
+                <TabsTrigger value="actions">Monthly Actions</TabsTrigger>
+              </TabsList>
+
+              {/* Points Leaderboard */}
+              <TabsContent value="points" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Award className="h-5 w-5 text-primary" />
+                      Top Points Earners
+                    </CardTitle>
+                    <CardDescription>Users with the highest total sustainability points</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {loading ? (
+                      <div className="flex items-center justify-center py-8 text-muted-foreground">
+                        <p>Loading user data...</p>
+                      </div>
+                    ) : topByPoints.length > 0 ? (
+                      <div className="space-y-4">
+                        {topByPoints.map((user, index) => (
+                          <div key={user.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/30">
+                            <div className="flex items-center gap-3">
+                              {getRankIcon(index + 1)}
+                              <Avatar className="h-10 w-10">
+                                <AvatarImage src={user.avatar_url || "/placeholder.svg"} />
+                                <AvatarFallback>
+                                  {user.first_name?.[0]}
+                                  {user.last_name?.[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                            </div>
+
+                            <div className="flex-1">
+                              <h3 className="font-medium">
+                                {user.first_name} {user.last_name}
+                              </h3>
+                              <p className="text-sm text-muted-foreground">{user.department}</p>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-primary">{user.points}</div>
+                              <div className="text-xs text-muted-foreground">Level {user.level}</div>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium">{user.full_name || user.name || "Anonymous User"}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {Math.round(user.total_co2_saved || 0)}kg CO₂ saved • {user.verified_actions || 0} actions
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-lg font-bold text-primary">
-                            {Math.round(user.points || user.total_points || 0)}
-                          </div>
-                          <p className="text-xs text-muted-foreground">points</p>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center py-8 text-muted-foreground">
+                        <div className="text-center">
+                          <Award className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p className="font-medium">No user performance data available</p>
+                          <p className="text-sm">Users need to complete actions to appear here</p>
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="flex items-center justify-center py-8 text-muted-foreground">
-                      <div className="text-center">
-                        <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p className="font-medium">No user performance data available</p>
-                        <p className="text-sm">Users need to complete actions to appear here</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* CO2 Leaderboard */}
+              <TabsContent value="co2" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Leaf className="h-5 w-5 text-accent" />
+                      Top CO₂ Savers
+                    </CardTitle>
+                    <CardDescription>Users with the highest environmental impact</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {loading ? (
+                      <div className="flex items-center justify-center py-8 text-muted-foreground">
+                        <p>Loading user data...</p>
                       </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                    ) : topByCO2.length > 0 ? (
+                      <div className="space-y-4">
+                        {topByCO2.map((user, index) => (
+                          <div key={user.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/30">
+                            <div className="flex items-center gap-3">
+                              {getRankIcon(index + 1)}
+                              <Avatar className="h-10 w-10">
+                                <AvatarImage src={user.avatar_url || "/placeholder.svg"} />
+                                <AvatarFallback>
+                                  {user.first_name?.[0]}
+                                  {user.last_name?.[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                            </div>
+
+                            <div className="flex-1">
+                              <h3 className="font-medium">
+                                {user.first_name} {user.last_name}
+                              </h3>
+                              <p className="text-sm text-muted-foreground">{user.department}</p>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-accent">{user.total_co2_saved}kg</div>
+                              <div className="text-xs text-muted-foreground">CO₂ Saved</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center py-8 text-muted-foreground">
+                        <div className="text-center">
+                          <Leaf className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p className="font-medium">No CO₂ data available</p>
+                          <p className="text-sm">Users need to complete actions to appear here</p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Monthly Actions Leaderboard */}
+              <TabsContent value="actions" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Target className="h-5 w-5 text-blue-600" />
+                      Most Active This Month
+                    </CardTitle>
+                    <CardDescription>Users with the most completed actions in the last 30 days</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {loading ? (
+                      <div className="flex items-center justify-center py-8 text-muted-foreground">
+                        <p>Loading user data...</p>
+                      </div>
+                    ) : topByActionsWithCount.length > 0 ? (
+                      <div className="space-y-4">
+                        {topByActionsWithCount.map((user, index) => (
+                          <div key={user.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/30">
+                            <div className="flex items-center gap-3">
+                              {getRankIcon(index + 1)}
+                              <Avatar className="h-10 w-10">
+                                <AvatarImage src={user.avatar_url || "/placeholder.svg"} />
+                                <AvatarFallback>
+                                  {user.first_name?.[0]}
+                                  {user.last_name?.[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                            </div>
+
+                            <div className="flex-1">
+                              <h3 className="font-medium">
+                                {user.first_name} {user.last_name}
+                              </h3>
+                              <p className="text-sm text-muted-foreground">{user.department}</p>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-blue-600">{user.action_count}</div>
+                              <div className="text-xs text-muted-foreground">Actions</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center py-8 text-muted-foreground">
+                        <div className="text-center">
+                          <Target className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p className="font-medium">No monthly activity data available</p>
+                          <p className="text-sm">Users need to complete actions to appear here</p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </TabsContent>
 
           <TabsContent value="engagement" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Engagement Rate</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold text-primary">
-                    {activeUsersCount && totalUsersCount ? Math.round((activeUsersCount / totalUsersCount) * 100) : 0}%
-                  </div>
-                  <p className="text-sm text-muted-foreground">Users active this week</p>
-                </CardContent>
-              </Card>
-
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Avg Actions/User */}
               <Card>
                 <CardHeader>
                   <CardTitle>Avg Actions/User</CardTitle>
@@ -434,6 +610,7 @@ export default function AnalyticsCharts({
                 </CardContent>
               </Card>
 
+              {/* Challenge Participation */}
               <Card>
                 <CardHeader>
                   <CardTitle>Challenge Participation</CardTitle>

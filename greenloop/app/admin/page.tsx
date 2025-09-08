@@ -3,18 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { DashboardCharts } from "@/components/admin/dashboard-charts"
 import { RefreshButton } from "@/components/admin/refresh-button"
-import {
-  Users,
-  Trophy,
-  Target,
-  TrendingUp,
-  Activity,
-  CheckCircle,
-  Calendar,
-  Leaf,
-  Award,
-  ArrowUpRight,
-} from "lucide-react"
+import { LeaderboardSection } from "@/components/admin/leaderboard-section"
+import { Users, Trophy, Target, Activity, CheckCircle, Calendar, Leaf, Award, ArrowUpRight } from "lucide-react"
 
 interface TopPerformer {
   user_id: string
@@ -260,51 +250,8 @@ export default async function AdminDashboard() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Top Performing Users
-              </CardTitle>
-              <CardDescription>Users with highest sustainability impact</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {topTeams?.map((user: TopPerformer, index: number) => (
-                  <div
-                    key={user.user_id}
-                    className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                          index === 0
-                            ? "bg-yellow-100 text-yellow-700"
-                            : index === 1
-                              ? "bg-gray-100 text-gray-700"
-                              : index === 2
-                                ? "bg-orange-100 text-orange-700"
-                                : "bg-primary/10 text-primary"
-                        }`}
-                      >
-                        <span className="text-sm font-bold">#{index + 1}</span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">{user.full_name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {Math.round(user.total_co2_saved || 0)}kg CO₂ saved • {user.verified_actions} actions
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-primary">{user.points || 0}</div>
-                      <p className="text-xs text-muted-foreground">points</p>
-                    </div>
-                  </div>
-                )) || <p className="text-muted-foreground text-center py-4">No user data available</p>}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Leaderboard Section */}
+          <LeaderboardSection showTabs={false} limit={5} />
         </div>
       </div>
     </div>

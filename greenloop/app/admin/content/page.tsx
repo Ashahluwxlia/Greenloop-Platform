@@ -17,9 +17,9 @@ interface ContentItem {
   title: string
   content: string // Made content required to match modal expectations
   description?: string
-  type: "action" | "announcement" | "educational" | "challenge"
+  type: "action" | "announcement" | "educational"
   category: string
-  status: "draft" | "published" // Removed archived status
+  status: "draft" | "published"
   points?: number
   co2_impact?: number
   tags: string[]
@@ -283,11 +283,10 @@ export default function AdminContentPage() {
 
           {/* Content Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="actions">Sustainability Actions</TabsTrigger>
               <TabsTrigger value="announcements">Announcements</TabsTrigger>
               <TabsTrigger value="educational">Educational Content</TabsTrigger>
-              <TabsTrigger value="settings">Content Settings</TabsTrigger>
             </TabsList>
 
             {/* Sustainability Actions Tab */}
@@ -357,7 +356,6 @@ export default function AdminContentPage() {
                               {action.status === "published" || (action.is_active && !action.status)
                                 ? "Published"
                                 : "Draft"}{" "}
-                              {/* Removed archived display */}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -481,60 +479,6 @@ export default function AdminContentPage() {
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            {/* Content Settings Tab */}
-            <TabsContent value="settings" className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Content Moderation</CardTitle>
-                    <CardDescription>Configure content approval and moderation settings</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">Auto-approve content</p>
-                        <p className="text-sm text-muted-foreground">
-                          Automatically approve new sustainability actions
-                        </p>
-                      </div>
-                      <Button variant="outline" size="sm">
-                        Configure
-                      </Button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">Content review queue</p>
-                        <p className="text-sm text-muted-foreground">Require admin approval for new content</p>
-                      </div>
-                      <Button variant="outline" size="sm">
-                        Configure
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Content Categories</CardTitle>
-                    <CardDescription>Manage content categories and tags</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="secondary">Energy</Badge>
-                      <Badge variant="secondary">Transportation</Badge>
-                      <Badge variant="secondary">Waste</Badge>
-                      <Badge variant="secondary">Water</Badge>
-                      <Badge variant="secondary">Food</Badge>
-                    </div>
-                    <Button variant="outline" className="w-full bg-transparent">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Category
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
             </TabsContent>
           </Tabs>
         </div>

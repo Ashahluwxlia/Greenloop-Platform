@@ -24,7 +24,7 @@ interface ContentItem {
   id?: string
   title: string
   content: string
-  type: "action" | "announcement" | "educational" | "challenge"
+  type: "action" | "announcement" | "educational"
   category: string
   status: "draft" | "published"
   points?: number
@@ -344,7 +344,6 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
                   <SelectItem value="action">Sustainability Action</SelectItem>
                   <SelectItem value="announcement">Announcement</SelectItem>
                   <SelectItem value="educational">Educational Content</SelectItem>
-                  <SelectItem value="challenge">Challenge</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -410,33 +409,39 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
                 </SelectContent>
               </Select>
             </div>
+            {formData.type === "action" && (
+              <div className="space-y-2">
+                <Label htmlFor="points">Points</Label>
+                <Input
+                  id="points"
+                  type="number"
+                  value={formData.points}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, points: Number.parseInt(e.target.value) || 0 }))}
+                  placeholder="0"
+                  min="0"
+                  disabled={isReadOnly}
+                />
+              </div>
+            )}
+          </div>
+
+          {formData.type === "action" && (
             <div className="space-y-2">
-              <Label htmlFor="points">Points</Label>
+              <Label htmlFor="co2_impact">CO₂ Impact (kg)</Label>
               <Input
-                id="points"
+                id="co2_impact"
                 type="number"
-                value={formData.points}
-                onChange={(e) => setFormData((prev) => ({ ...prev, points: Number.parseInt(e.target.value) || 0 }))}
-                placeholder="0"
+                step="0.1"
+                value={formData.co2_impact}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, co2_impact: Number.parseFloat(e.target.value) || 0 }))
+                }
+                placeholder="0.0"
                 min="0"
                 disabled={isReadOnly}
               />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="co2_impact">CO₂ Impact (kg)</Label>
-            <Input
-              id="co2_impact"
-              type="number"
-              step="0.1"
-              value={formData.co2_impact}
-              onChange={(e) => setFormData((prev) => ({ ...prev, co2_impact: Number.parseFloat(e.target.value) || 0 }))}
-              placeholder="0.0"
-              min="0"
-              disabled={isReadOnly}
-            />
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label>Tags</Label>
