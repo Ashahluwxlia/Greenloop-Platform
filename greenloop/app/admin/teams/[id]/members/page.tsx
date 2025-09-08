@@ -1,7 +1,5 @@
 "use client"
 
-import type React from "react"
-
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
@@ -11,7 +9,9 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
-import { ArrowLeft, Users, Crown, Mail, Calendar, MoreHorizontal, UserMinus } from "lucide-react"
+import { ArrowLeft, Users, Crown, Mail, Calendar } from "lucide-react"
+import { MemberActionDropdown } from "@/components/admin/member-action-dropdown"
+import { AddMemberModal } from "@/components/admin/add-member-modal"
 
 interface TeamMember {
   id: string
@@ -40,13 +40,6 @@ export default function ManageMembersPage() {
   const [team, setTeam] = useState<Team | null>(null)
   const [members, setMembers] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
-  const [dropdownPosition, setDropdownPosition] = useState<{
-    top?: number
-    bottom?: number
-    left?: number
-    right?: number
-  }>({})
   const supabase = createClient()
 
   const loadData = async () => {
@@ -75,8 +68,6 @@ export default function ManageMembersPage() {
         .order("is_leader", { ascending: false })
         .order("points", { ascending: false })
 
-      const uniqueMembers = new Map()
-
       const formattedMembers: TeamMember[] = (performanceData || []).map((member: any) => ({
         id: member.user_id,
         full_name: `${member.first_name} ${member.last_name}`,
@@ -88,15 +79,7 @@ export default function ManageMembersPage() {
         is_leader: member.is_leader,
       }))
 
-      // Remove duplicates by user_id, keeping the one marked as leader if exists
-      formattedMembers.forEach((member) => {
-        const existing = uniqueMembers.get(member.id)
-        if (!existing || member.is_leader) {
-          uniqueMembers.set(member.id, member)
-        }
-      })
-
-      setMembers(Array.from(uniqueMembers.values()))
+      setMembers(formattedMembers)
     } catch (error) {
       console.error("Error loading data:", error)
       toast({
@@ -112,50 +95,6 @@ export default function ManageMembersPage() {
   useEffect(() => {
     loadData()
   }, [params.id])
-
-  useEffect(() => {
-    const handleClickOutside = () => {
-      setOpenDropdown(null)
-    }
-
-    if (openDropdown) {
-      document.addEventListener("click", handleClickOutside)
-      return () => document.removeEventListener("click", handleClickOutside)
-    }
-  }, [openDropdown])
-
-  const toggleDropdown = (memberId: string, event?: React.MouseEvent) => {
-    if (openDropdown === memberId) {
-      setOpenDropdown(null)
-      return
-    }
-
-    if (event) {
-      const rect = (event.target as HTMLElement).getBoundingClientRect()
-      const viewportWidth = window.innerWidth
-      const viewportHeight = window.innerHeight
-      const dropdownWidth = 192
-      const dropdownHeight = 120
-
-      const position: { top?: number; bottom?: number; left?: number; right?: number } = {}
-
-      if (rect.right + dropdownWidth > viewportWidth) {
-        position.right = viewportWidth - rect.left
-      } else {
-        position.left = rect.right
-      }
-
-      if (rect.bottom + dropdownHeight > viewportHeight) {
-        position.bottom = viewportHeight - rect.top
-      } else {
-        position.top = rect.bottom
-      }
-
-      setDropdownPosition(position)
-    }
-
-    setOpenDropdown(memberId)
-  }
 
   const handleRemoveMember = async (memberId: string) => {
     if (!team) return
@@ -212,7 +151,7 @@ export default function ManageMembersPage() {
               </p>
             </div>
           </div>
-          {team && <Button onClick={() => console.log("Add Member")}>Add Member</Button>}
+          {team && <AddMemberModal teamId={team.id} />}
         </div>
 
         {/* Team Info */}
@@ -319,45 +258,11 @@ export default function ManageMembersPage() {
                     </TableCell>
                     <TableCell>
                       {!member.is_leader && team ? (
-                        <div className="relative">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              toggleDropdown(member.id, e)
-                            }}
-                            className="p-2 hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
-
-                          {openDropdown === member.id && (
-                            <>
-                              <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
-                              <div
-                                className="fixed w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50"
-                                style={{
-                                  top: dropdownPosition.top,
-                                  bottom: dropdownPosition.bottom,
-                                  left: dropdownPosition.left,
-                                  right: dropdownPosition.right,
-                                }}
-                              >
-                                <div className="py-1">
-                                  <button
-                                    onClick={() => {
-                                      setOpenDropdown(null)
-                                      handleRemoveMember(member.id)
-                                    }}
-                                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                                  >
-                                    <UserMinus className="h-4 w-4" />
-                                    Remove Member
-                                  </button>
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
+                        <MemberActionDropdown
+                          memberId={member.id}
+                          teamId={team.id}
+                          memberName={member.full_name && member.email}
+                        />
                       ) : (
                         <span className="text-muted-foreground text-sm">Team Leader</span>
                       )}
