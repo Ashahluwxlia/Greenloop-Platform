@@ -6,7 +6,18 @@ import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
-import { LayoutDashboard, Users, Trophy, Target, BarChart3, Settings, FileText, Shield, LogOut } from "lucide-react"
+import {
+  LayoutDashboard,
+  Users,
+  Trophy,
+  Target,
+  BarChart3,
+  Settings,
+  FileText,
+  Shield,
+  LogOut,
+  User,
+} from "lucide-react"
 
 const sidebarItems = [
   {
@@ -100,7 +111,17 @@ export function AdminSidebar() {
         </nav>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-sidebar-border bg-sidebar">
+      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-sidebar-border bg-sidebar space-y-2">
+        <Link href="/dashboard">
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-3 text-primary border-primary/20 hover:bg-primary hover:text-primary-foreground bg-transparent"
+          >
+            <User className="h-4 w-4" />
+            User Dashboard
+          </Button>
+        </Link>
+
         <Button
           variant="outline"
           className="w-full justify-start gap-3 text-destructive border-destructive/20 hover:bg-destructive hover:text-destructive-foreground bg-transparent"
