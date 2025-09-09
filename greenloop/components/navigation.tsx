@@ -1,19 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import type React from "react"
+
+import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Leaf, Home, Target, Users, Award, BarChart3, Settings, Menu, LogOut, User, Trophy, Shield } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -66,11 +60,84 @@ const navigationItems = [
     href: "/leaderboard",
     icon: BarChart3,
   },
+  {
+    title: "Profile",
+    href: "/profile",
+    icon: User,
+  },
+  {
+    title: "Settings",
+    href: "/settings",
+    icon: Settings,
+  },
 ]
 
 export function Navigation({ user }: NavigationProps) {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
+  const [isAvatarDropdownOpen, setIsAvatarDropdownOpen] = useState(false)
+  const [dropdownPosition, setDropdownPosition] = useState<{
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+  }>({})
+  const avatarDropdownRef = useRef<HTMLDivElement>(null)
+
+  console.log("[v0] Navigation user data:", user)
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (avatarDropdownRef.current && !avatarDropdownRef.current.contains(event.target as Node)) {
+        setIsAvatarDropdownOpen(false)
+      }
+    }
+
+    if (isAvatarDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [isAvatarDropdownOpen])
+
+  const toggleAvatarDropdown = (event: React.MouseEvent) => {
+    console.log("[v0] Avatar clicked - toggling dropdown")
+
+    if (isAvatarDropdownOpen) {
+      setIsAvatarDropdownOpen(false)
+      return
+    }
+
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const dropdownWidth = 224 // w-56 = 14rem = 224px
+    const dropdownHeight = 280 // approximate height of dropdown
+
+    const position: { top?: number; bottom?: number; left?: number; right?: number } = {}
+
+    if (rect.right - dropdownWidth < 0) {
+      position.left = rect.left
+    } else {
+      position.right = viewportWidth - rect.right
+    }
+
+    if (rect.bottom + dropdownHeight > viewportHeight) {
+      position.bottom = viewportHeight - rect.top
+    } else {
+      position.top = rect.bottom + 8
+    }
+
+    setDropdownPosition(position)
+    setIsAvatarDropdownOpen(true)
+  }
+
+  const handleDropdownItemClick = (action: () => void) => {
+    action()
+    setIsAvatarDropdownOpen(false)
+  }
 
   const getNavigationItems = () => {
     const items = [...navigationItems]
@@ -85,7 +152,6 @@ export function Navigation({ user }: NavigationProps) {
   }
 
   const handleSignOut = async () => {
-    // This will be handled by a server action
     const form = document.createElement("form")
     form.method = "POST"
     form.action = "/auth/logout"
@@ -93,120 +159,175 @@ export function Navigation({ user }: NavigationProps) {
     form.submit()
   }
 
+  const displayName = user ? `${user.first_name || ""} ${user.last_name || ""}`.trim() : "User"
+  const userInitials = user ? `${user.first_name?.[0] || ""}${user.last_name?.[0] || ""}` : "U"
+  const userPoints = user?.points || 0
+  const userLevel = user?.level || 1
+  const userEmail = user?.email || ""
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-16 items-center">
-        {/* Logo */}
-        <Link href="/dashboard" className="flex items-center gap-2 mr-6">
+      <div className="container flex h-16 items-center px-4">
+        <Link href="/dashboard" className="flex items-center gap-2 flex-shrink-0 mr-6">
           <div className="p-1.5 bg-primary rounded-lg">
             <Leaf className="h-5 w-5 text-primary-foreground" />
           </div>
           <span className="font-bold text-lg">GreenLoop</span>
         </Link>
 
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center space-x-6 text-sm font-medium flex-1">
-          {getNavigationItems().map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-2 transition-colors hover:text-foreground/80",
-                pathname === item.href ? "text-foreground" : "text-foreground/60",
-                item.href === "/admin" &&
-                  "text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300",
-              )}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.title}
-            </Link>
-          ))}
+        <nav className="hidden lg:flex items-center flex-1">
+          <div className="flex items-center justify-evenly w-full">
+            {getNavigationItems().map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-2 transition-colors hover:text-foreground/80 px-3 py-2 rounded-md whitespace-nowrap",
+                  pathname === item.href ? "text-foreground bg-accent" : "text-foreground/60",
+                  item.href === "/admin" &&
+                    "text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300",
+                )}
+              >
+                <item.icon className="h-4 w-4 flex-shrink-0" />
+                <span className="text-sm font-medium">{item.title}</span>
+              </Link>
+            ))}
+          </div>
         </nav>
 
-        {/* User Menu */}
-        <div className="flex items-center gap-4">
-          {user && (
-            <div className="hidden sm:flex items-center gap-2 text-sm">
-              <div className="text-right">
-                <div className="font-medium">{user.points} pts</div>
-                <div className="text-xs text-muted-foreground">Level {user.level}</div>
-              </div>
+        <div className="flex items-center gap-3 flex-shrink-0 ml-6">
+          <div className="hidden sm:flex items-center gap-2 text-sm">
+            <div className="text-right">
+              <div className="font-medium">{userPoints} pts</div>
+              <div className="text-xs text-muted-foreground">Level {userLevel}</div>
             </div>
-          )}
+          </div>
+
+          <div className="relative" ref={avatarDropdownRef}>
+            <Button
+              variant="ghost"
+              className="relative h-10 w-10 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 hover:bg-accent"
+              onClick={toggleAvatarDropdown}
+            >
+              <Avatar className="h-10 w-10 border-2 border-border">
+                <AvatarImage
+                  src={user?.avatar_url || "/placeholder.svg?height=40&width=40&query=user avatar"}
+                  alt={displayName}
+                />
+                <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
+                  {userInitials}
+                </AvatarFallback>
+              </Avatar>
+            </Button>
+
+            {isAvatarDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsAvatarDropdownOpen(false)} />
+
+                <div
+                  className="fixed w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50"
+                  style={{
+                    top: dropdownPosition.top,
+                    bottom: dropdownPosition.bottom,
+                    left: dropdownPosition.left,
+                    right: dropdownPosition.right,
+                  }}
+                >
+                  <div className="py-1">
+                    <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                      <div className="flex flex-col space-y-1">
+                        <p className="text-sm font-medium leading-none text-gray-900 dark:text-gray-100">
+                          {displayName}
+                        </p>
+                        <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400 break-all">
+                          {userEmail}
+                        </p>
+                        <p className="text-xs leading-none text-gray-500 dark:text-gray-400">
+                          {userPoints} pts • Level {userLevel}
+                        </p>
+                      </div>
+                    </div>
+
+                    <Link
+                      href="/profile"
+                      onClick={() => handleDropdownItemClick(() => {})}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <User className="h-4 w-4" />
+                      Profile
+                    </Link>
+
+                    <Link
+                      href="/settings"
+                      onClick={() => handleDropdownItemClick(() => {})}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <Settings className="h-4 w-4" />
+                      Settings
+                    </Link>
+
+                    {user?.is_admin && (
+                      <>
+                        <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
+                        <Link
+                          href="/admin"
+                          onClick={() => handleDropdownItemClick(() => {})}
+                          className="flex w-full items-center gap-2 px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                        >
+                          <Shield className="h-4 w-4" />
+                          Admin Panel
+                        </Link>
+                      </>
+                    )}
+
+                    <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
+
+                    <button
+                      onClick={() => handleDropdownItemClick(handleSignOut)}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
           <Button
             variant="outline"
             size="sm"
             onClick={handleSignOut}
-            className="hidden md:flex items-center gap-2 bg-transparent"
+            className="hidden lg:flex items-center gap-2 bg-transparent"
           >
             <LogOut className="h-4 w-4" />
             Sign Out
           </Button>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={user?.avatar_url || "/placeholder.svg"} alt={user?.first_name} />
-                  <AvatarFallback>
-                    {user?.first_name?.[0]}
-                    {user?.last_name?.[0]}
-                  </AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56" align="end" forceMount>
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">
-                    {user?.first_name} {user?.last_name}
-                  </p>
-                  <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/profile" className="flex items-center">
-                  <User className="mr-2 h-4 w-4" />
-                  Profile
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/settings" className="flex items-center">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
-              {user?.is_admin && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link href="/admin" className="flex items-center">
-                      <Shield className="mr-2 h-4 w-4" />
-                      Admin Panel
-                    </Link>
-                  </DropdownMenuItem>
-                </>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Mobile Menu */}
           <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" className="md:hidden" size="icon">
+              <Button variant="ghost" className="lg:hidden" size="icon">
                 <Menu className="h-5 w-5" />
                 <span className="sr-only">Toggle menu</span>
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-[300px] sm:w-[400px]">
               <nav className="flex flex-col gap-4">
+                <div className="flex items-center gap-3 p-4 border-b">
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={user?.avatar_url || "/placeholder.svg"} alt={displayName} />
+                    <AvatarFallback className="bg-primary text-primary-foreground">{userInitials}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col">
+                    <p className="text-sm font-medium">{displayName}</p>
+                    <p className="text-xs text-muted-foreground break-all">{userEmail}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {userPoints} pts • Level {userLevel}
+                    </p>
+                  </div>
+                </div>
+
                 {getNavigationItems().map((item) => (
                   <Link
                     key={item.href}
@@ -223,6 +344,42 @@ export function Navigation({ user }: NavigationProps) {
                     {item.title}
                   </Link>
                 ))}
+
+                <div className="border-t pt-4 mt-4">
+                  <Link
+                    href="/profile"
+                    onClick={() => setIsOpen(false)}
+                    className={cn(
+                      "flex items-center gap-2 text-lg font-medium transition-colors hover:text-foreground/80",
+                      pathname === "/profile" ? "text-foreground" : "text-foreground/60",
+                    )}
+                  >
+                    <User className="h-5 w-5" />
+                    Profile
+                  </Link>
+                  <Link
+                    href="/settings"
+                    onClick={() => setIsOpen(false)}
+                    className={cn(
+                      "flex items-center gap-2 text-lg font-medium transition-colors hover:text-foreground/80 mt-4",
+                      pathname === "/settings" ? "text-foreground" : "text-foreground/60",
+                    )}
+                  >
+                    <Settings className="h-5 w-5" />
+                    Settings
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setIsOpen(false)
+                      handleSignOut()
+                    }}
+                    className="flex items-center gap-2 text-lg font-medium mt-4 w-full justify-start p-0 h-auto"
+                  >
+                    <LogOut className="h-5 w-5" />
+                    Sign Out
+                  </Button>
+                </div>
               </nav>
             </SheetContent>
           </Sheet>

@@ -56,42 +56,33 @@ export default function ProfilePage() {
           return
         }
 
-        // Get user profile
-        const { data: userProfile } = await supabase.from("users").select("*").eq("id", userData.user.id).single()
+        const response = await fetch("/api/profile", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        })
 
-        if (userProfile) {
-          setUser(userProfile)
+        if (!response.ok) {
+          throw new Error("Failed to fetch profile")
+        }
+
+        const data = await response.json()
+        const { profile, stats: profileStats } = data
+
+        if (profile) {
+          setUser(profile)
           setFormData({
-            first_name: userProfile.first_name || "",
-            last_name: userProfile.last_name || "",
-            email: userProfile.email || "",
-            department: userProfile.department || "",
-            job_title: userProfile.job_title || "",
-            employee_id: userProfile.employee_id || "",
+            first_name: profile.first_name || "",
+            last_name: profile.last_name || "",
+            email: profile.email || "",
+            department: profile.department || "",
+            job_title: profile.job_title || "",
+            employee_id: profile.employee_id || "",
           })
         }
 
-        // Get user statistics
-        const [actionsResult, badgesResult] = await Promise.all([
-          supabase
-            .from("user_actions")
-            .select("id, completed_at")
-            .eq("user_id", userData.user.id)
-            .eq("verification_status", "approved"),
-          supabase.from("user_badges").select("id").eq("user_id", userData.user.id),
-        ])
-
-        setStats({
-          totalActions: actionsResult.data?.length || 0,
-          totalBadges: badgesResult.data?.length || 0,
-          thisWeekActions:
-            actionsResult.data?.filter((action) => {
-              const actionDate = new Date(action.completed_at)
-              const weekAgo = new Date()
-              weekAgo.setDate(weekAgo.getDate() - 7)
-              return actionDate >= weekAgo
-            }).length || 0,
-        })
+        setStats(profileStats)
       } catch (err) {
         setError("Failed to load profile")
       } finally {
@@ -115,22 +106,28 @@ export default function ProfilePage() {
     setSuccess(false)
 
     try {
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           first_name: formData.first_name,
           last_name: formData.last_name,
           department: formData.department,
           job_title: formData.job_title,
           employee_id: formData.employee_id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id)
+        }),
+      })
 
-      if (updateError) throw updateError
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update profile")
+      }
 
       setSuccess(true)
-      setUser((prev: any) => ({ ...prev, ...formData }))
+      setUser((prev: any) => ({ ...prev, ...data.profile }))
 
       setTimeout(() => setSuccess(false), 3000)
     } catch (err: any) {
