@@ -84,7 +84,7 @@ export function Navigation({ user }: NavigationProps) {
   }>({})
   const avatarDropdownRef = useRef<HTMLDivElement>(null)
 
-  console.log("[v0] Navigation user data:", user)
+  console.log("Navigation user data:", user)
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -103,7 +103,7 @@ export function Navigation({ user }: NavigationProps) {
   }, [isAvatarDropdownOpen])
 
   const toggleAvatarDropdown = (event: React.MouseEvent) => {
-    console.log("[v0] Avatar clicked - toggling dropdown")
+    console.log("Avatar clicked - toggling dropdown")
 
     if (isAvatarDropdownOpen) {
       setIsAvatarDropdownOpen(false)

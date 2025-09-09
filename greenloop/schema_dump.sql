@@ -132,6 +132,20 @@ $$;
 ALTER FUNCTION "public"."check_and_award_badges"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."create_user_preferences"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    INSERT INTO "public"."user_preferences" ("user_id")
+    VALUES (NEW."id");
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_user_preferences"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_recent_admin_activities"("p_limit" integer DEFAULT 50) RETURNS TABLE("id" "uuid", "admin_name" "text", "action" character varying, "resource_type" character varying, "resource_id" "uuid", "details" "jsonb", "created_at" timestamp with time zone)
     LANGUAGE "plpgsql"
     AS $$
@@ -1177,6 +1191,26 @@ CREATE TABLE IF NOT EXISTS "public"."user_badges" (
 ALTER TABLE "public"."user_badges" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."user_preferences" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "email_notifications" boolean DEFAULT true,
+    "weekly_digest" boolean DEFAULT true,
+    "achievement_alerts" boolean DEFAULT true,
+    "leaderboard_updates" boolean DEFAULT true,
+    "team_invitations" boolean DEFAULT true,
+    "profile_visibility" "text" DEFAULT 'public'::"text",
+    "leaderboard_participation" boolean DEFAULT true,
+    "analytics_sharing" boolean DEFAULT true,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "user_preferences_profile_visibility_check" CHECK (("profile_visibility" = ANY (ARRAY['public'::"text", 'private'::"text"])))
+);
+
+
+ALTER TABLE "public"."user_preferences" OWNER TO "postgres";
+
+
 CREATE OR REPLACE VIEW "public"."user_team_memberships" AS
  SELECT "u"."id" AS "user_id",
     "u"."first_name",
@@ -1329,6 +1363,16 @@ ALTER TABLE ONLY "public"."user_badges"
 
 ALTER TABLE ONLY "public"."user_badges"
     ADD CONSTRAINT "user_badges_user_id_badge_id_key" UNIQUE ("user_id", "badge_id");
+
+
+
+ALTER TABLE ONLY "public"."user_preferences"
+    ADD CONSTRAINT "user_preferences_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."user_preferences"
+    ADD CONSTRAINT "user_preferences_user_id_key" UNIQUE ("user_id");
 
 
 
@@ -1536,6 +1580,10 @@ CREATE INDEX "idx_users_points" ON "public"."users" USING "btree" ("points");
 
 
 
+CREATE INDEX "user_preferences_user_id_idx" ON "public"."user_preferences" USING "btree" ("user_id");
+
+
+
 CREATE OR REPLACE VIEW "public"."admin_user_stats" AS
  SELECT "u"."id",
     "u"."first_name",
@@ -1560,6 +1608,10 @@ CREATE OR REPLACE VIEW "public"."admin_user_stats" AS
      LEFT JOIN "public"."team_members" "tm" ON (("u"."id" = "tm"."user_id")))
      LEFT JOIN "public"."teams" "t" ON (("tm"."team_id" = "t"."id")))
   GROUP BY "u"."id", "tm"."team_id", "t"."name";
+
+
+
+CREATE OR REPLACE TRIGGER "create_user_preferences_trigger" AFTER INSERT ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."create_user_preferences"();
 
 
 
@@ -1714,6 +1766,11 @@ ALTER TABLE ONLY "public"."user_badges"
 
 
 
+ALTER TABLE ONLY "public"."user_preferences"
+    ADD CONSTRAINT "user_preferences_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."user_sessions"
     ADD CONSTRAINT "user_sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
 
@@ -1721,6 +1778,24 @@ ALTER TABLE ONLY "public"."user_sessions"
 
 ALTER TABLE ONLY "public"."users"
     ADD CONSTRAINT "users_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+CREATE POLICY "Admins can view all preferences" ON "public"."user_preferences" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "Users can insert their own preferences" ON "public"."user_preferences" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users can update their own preferences" ON "public"."user_preferences" FOR UPDATE USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users can view their own preferences" ON "public"."user_preferences" FOR SELECT USING (("user_id" = "auth"."uid"()));
 
 
 
@@ -2034,6 +2109,9 @@ CREATE POLICY "user_badges_select_all" ON "public"."user_badges" FOR SELECT USIN
 
 
 
+ALTER TABLE "public"."user_preferences" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."user_sessions" ENABLE ROW LEVEL SECURITY;
 
 
@@ -2253,6 +2331,12 @@ GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO 
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "anon";
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "anon";
+GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "service_role";
 
 
 
@@ -2514,6 +2598,12 @@ GRANT ALL ON TABLE "public"."user_analytics" TO "service_role";
 GRANT ALL ON TABLE "public"."user_badges" TO "anon";
 GRANT ALL ON TABLE "public"."user_badges" TO "authenticated";
 GRANT ALL ON TABLE "public"."user_badges" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."user_preferences" TO "anon";
+GRANT ALL ON TABLE "public"."user_preferences" TO "authenticated";
+GRANT ALL ON TABLE "public"."user_preferences" TO "service_role";
 
 
 
