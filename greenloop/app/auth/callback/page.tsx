@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Leaf, Loader2, CheckCircle, AlertCircle, ExternalLink } from "lucide-react"
+import { Leaf, Loader2, CheckCircle, AlertCircle, ExternalLink, Mail } from "lucide-react"
 import Link from "next/link"
 
 export default function AuthCallbackPage() {
@@ -27,7 +27,10 @@ export default function AuthCallbackPage() {
 
         if (oauthError) {
           // Handle specific Microsoft OAuth errors
-          if (errorDescription?.includes("Error getting user email from external provider")) {
+          if (errorCode === "otp_expired") {
+            setErrorType("email_expired")
+            throw new Error("Email verification link has expired. Please request a new verification email.")
+          } else if (errorDescription?.includes("Error getting user email from external provider")) {
             setErrorType("microsoft_email_permission")
             throw new Error("Microsoft account email access denied. Please check your Azure AD app permissions.")
           } else if (errorCode === "unexpected_failure") {
@@ -82,23 +85,42 @@ export default function AuthCallbackPage() {
         }
 
         if (code) {
-          // For PKCE flow, pass the full URL to include both code and state parameters
-          const { data, error } = await supabase.auth.exchangeCodeForSession(window.location.href)
+          const state = searchParams.get("state")
+          const isEmailVerification = !state && type !== "recovery" // Email verification doesn't have state parameter
 
-          if (error) {
-            throw error
-          }
+          if (isEmailVerification) {
+            // We just need to check if there's a valid session and redirect
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
 
-          if (type === "recovery") {
-            // For password recovery, redirect to reset password
-            router.push("/auth/reset-password")
+            if (sessionError || !sessionData.session) {
+              // If no session, the verification might have succeeded but user needs to sign in
+              router.push("/auth/login?message=verification_complete")
+            } else {
+              // Session exists, verification was successful
+              router.push("/dashboard")
+            }
+
+            setSuccess(true)
+            return
           } else {
-            // Default redirect to dashboard
-            router.push("/dashboard")
-          }
+            // For OAuth PKCE flow, pass the full URL to include both code and state parameters
+            const { data, error } = await supabase.auth.exchangeCodeForSession(window.location.href)
 
-          setSuccess(true)
-          return
+            if (error) {
+              throw error
+            }
+
+            if (type === "recovery") {
+              // For password recovery, redirect to reset password
+              router.push("/auth/reset-password")
+            } else {
+              // Default redirect to dashboard
+              router.push("/dashboard")
+            }
+
+            setSuccess(true)
+            return
+          }
         }
 
         // Check if we already have a session (Supabase may have handled the exchange automatically)
@@ -167,6 +189,36 @@ export default function AuthCallbackPage() {
             <CardDescription className="text-balance">{error}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {errorType === "email_expired" && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <Mail className="h-4 w-4 text-amber-600" />
+                  <h4 className="font-semibold text-amber-900">Email Verification Link Expired</h4>
+                </div>
+                <p className="text-amber-800 mb-3">
+                  Your email verification link has expired for security reasons. Email verification links are only valid
+                  for a limited time.
+                </p>
+                <div className="space-y-2 text-amber-700">
+                  <p className="font-medium">What to do next:</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>Go back to the registration page</li>
+                    <li>Enter your email address again</li>
+                    <li>Check your inbox for a new verification email</li>
+                    <li>Click the new verification link promptly</li>
+                  </ul>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Button variant="outline" size="sm" className="flex-1 bg-transparent" asChild>
+                    <Link href="/auth/register">Register Again</Link>
+                  </Button>
+                  <Button variant="outline" size="sm" className="flex-1 bg-transparent" asChild>
+                    <Link href="/auth/login">Sign In Instead</Link>
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {errorType === "microsoft_email_permission" && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
                 <h4 className="font-semibold text-blue-900 mb-2">Microsoft OAuth Configuration Issue</h4>
@@ -221,9 +273,11 @@ export default function AuthCallbackPage() {
               </div>
             )}
 
-            <Button asChild className="w-full">
-              <Link href="/auth/login">Back to Login</Link>
-            </Button>
+            {errorType !== "email_expired" && (
+              <Button asChild className="w-full">
+                <Link href="/auth/login">Back to Login</Link>
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>
