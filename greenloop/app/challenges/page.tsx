@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Trophy, Plus, Calendar, Target, Clock, Award } from "lucide-react"
+import { Trophy, Plus, Calendar, Clock, Award } from "lucide-react"
 import Link from "next/link"
+import { ChallengeCardActions } from "@/components/challenge-card-actions"
 
 export default async function ChallengesPage() {
   const supabase = await createClient()
@@ -20,7 +21,6 @@ export default async function ChallengesPage() {
   // Get user profile
   const { data: userProfile } = await supabase.from("users").select("*").eq("id", data.user.id).single()
 
-  // Get all active challenges
   const { data: allChallenges } = await supabase
     .from("challenges")
     .select(`
@@ -30,14 +30,24 @@ export default async function ChallengesPage() {
         user_id,
         team_id,
         current_progress,
-        completed
+        completed,
+        teams (
+          id,
+          name,
+          description,
+          team_members (
+            id,
+            user_id,
+            users (id, first_name, last_name, avatar_url)
+          )
+        )
       )
     `)
     .eq("is_active", true)
     .gte("end_date", new Date().toISOString())
     .order("start_date", { ascending: false })
 
-  // Get user's participations
+  // Get user's participations with progress data
   const { data: userParticipations } = await supabase
     .from("challenge_participants")
     .select(`
@@ -46,6 +56,13 @@ export default async function ChallengesPage() {
     `)
     .eq("user_id", data.user.id)
     .order("joined_at", { ascending: false })
+
+  const { data: userProgressData } = await supabase
+    .from("challenge_progress")
+    .select("challenge_id, current_progress, progress_percentage, completed")
+    .eq("user_id", data.user.id)
+
+  const progressMap = new Map(userProgressData?.map((p) => [p.challenge_id, p]) || [])
 
   // Get user's team
   const { data: userTeam } = await supabase
@@ -56,13 +73,48 @@ export default async function ChallengesPage() {
     .eq("user_id", data.user.id)
     .single()
 
+  const { data: allUserParticipations } = await supabase
+    .from("challenge_participants")
+    .select("challenge_id, completed, current_progress")
+    .eq("user_id", data.user.id)
+
+  const participationMap = new Map(allUserParticipations?.map((p) => [p.challenge_id, p]) || [])
+
   const challengesWithStats =
     allChallenges?.map((challenge) => {
       const participantCount = challenge.challenge_participants?.length || 0
+      const userParticipation = participationMap.get(challenge.id)
+      const userProgress = progressMap.get(challenge.id)
+      const challengeEnded = new Date(challenge.end_date) < new Date()
+
+      let teamCount = 0
+      let totalTeamMembers = 0
+      let teamName = ""
+
+      if (challenge.challenge_type === "team") {
+        const teamParticipant = challenge.challenge_participants?.find(
+          (participant: any) => participant.team_id && participant.teams,
+        )
+
+        if (teamParticipant?.teams) {
+          teamName = teamParticipant.teams.name
+          totalTeamMembers = teamParticipant.teams.team_members?.length || 0
+          teamCount = 1
+        }
+      }
+
       return {
         ...challenge,
         participants: participantCount,
+        teamCount,
+        totalTeamMembers,
+        teamName,
         maxParticipants: challenge.max_participants || 100,
+        isParticipating: !!userParticipation,
+        isCompleted: userProgress?.completed || false,
+        userProgress: userProgress?.current_progress || 0,
+        progressPercentage: userProgress?.progress_percentage || 0,
+        challengeEnded,
       }
     }) || []
 
@@ -103,66 +155,235 @@ export default async function ChallengesPage() {
 
             <TabsContent value="active" className="space-y-6">
               {challengesWithStats.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {challengesWithStats.map((challenge) => (
-                    <Card key={challenge.id} className="hover:shadow-md transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between mb-2">
-                          <Badge variant="secondary" className="flex items-center gap-1">
-                            <Trophy className="h-3 w-3" />
-                            {challenge.challenge_type}
-                          </Badge>
-                          <Badge variant="outline">{challenge.category}</Badge>
-                        </div>
-                        <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
-                        <CardDescription className="text-pretty">{challenge.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        {/* Challenge Stats */}
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="text-center p-3 bg-muted/50 rounded-lg">
-                            <div className="text-lg font-bold text-primary">{challenge.participants}</div>
-                            <p className="text-xs text-muted-foreground">Participants</p>
-                          </div>
-                          <div className="text-center p-3 bg-muted/50 rounded-lg">
-                            <div className="text-lg font-bold text-accent">{challenge.points_reward}</div>
-                            <p className="text-xs text-muted-foreground">Points</p>
-                          </div>
-                        </div>
+                <div className="space-y-8">
+                  {/* Personal Challenges */}
+                  {challengesWithStats.filter((c) => c.challenge_type === "individual").length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold">Personal Challenges</h2>
+                        <Badge variant="outline">Individual</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {challengesWithStats
+                          .filter((c) => c.challenge_type === "individual")
+                          .map((challenge) => (
+                            <Card key={challenge.id} className="hover:shadow-md transition-shadow">
+                              <CardHeader className="pb-3">
+                                <div className="flex items-start justify-between mb-2">
+                                  <Badge variant="secondary" className="flex items-center gap-1">
+                                    <Trophy className="h-3 w-3" />
+                                    Personal
+                                  </Badge>
+                                  <Badge variant="outline">{challenge.category}</Badge>
+                                </div>
+                                <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                <CardDescription className="text-pretty">{challenge.description}</CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                {/* Challenge Stats */}
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-primary">{challenge.participants}</div>
+                                    <p className="text-xs text-muted-foreground">Participants</p>
+                                  </div>
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
+                                    <p className="text-xs text-muted-foreground">Points</p>
+                                  </div>
+                                </div>
 
-                        {/* Progress Bar */}
-                        <div>
-                          <div className="flex justify-between text-sm mb-1">
-                            <span className="text-muted-foreground">Participation</span>
-                            <span className="text-muted-foreground">
-                              {challenge.participants}/{challenge.maxParticipants}
-                            </span>
-                          </div>
-                          <Progress
-                            value={(challenge.participants / challenge.maxParticipants) * 100}
-                            className="h-2"
-                          />
-                        </div>
+                                {/* Progress Bar */}
+                                <div>
+                                  <div className="flex justify-between text-sm mb-1">
+                                    <span className="text-muted-foreground">Participation</span>
+                                    <span className="text-muted-foreground">
+                                      {challenge.participants}/{challenge.maxParticipants}
+                                    </span>
+                                  </div>
+                                  <Progress
+                                    value={(challenge.participants / challenge.maxParticipants) * 100}
+                                    className="h-2"
+                                  />
+                                </div>
 
-                        {/* Duration */}
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Calendar className="h-4 w-4" />
-                          <span>
-                            {new Date(challenge.start_date).toLocaleDateString()} -{" "}
-                            {new Date(challenge.end_date).toLocaleDateString()}
-                          </span>
-                        </div>
+                                {/* Duration */}
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Calendar className="h-4 w-4" />
+                                  <span>
+                                    {new Date(challenge.start_date).toLocaleDateString()} -{" "}
+                                    {new Date(challenge.end_date).toLocaleDateString()}
+                                  </span>
+                                </div>
 
-                        {/* Action Button */}
-                        <Button className="w-full" asChild>
-                          <Link href={`/challenges/${challenge.id}`}>
-                            <Target className="h-4 w-4 mr-2" />
-                            View Challenge
-                          </Link>
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
+                                <ChallengeCardActions
+                                  challengeId={challenge.id}
+                                  isParticipating={challenge.isParticipating}
+                                  isCompleted={challenge.isCompleted}
+                                  challengeEnded={challenge.challengeEnded}
+                                  challengeType={challenge.challenge_type}
+                                  userProgress={challenge.userProgress}
+                                  targetValue={challenge.target_value}
+                                  progressPercentage={challenge.progressPercentage}
+                                />
+                              </CardContent>
+                            </Card>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Company-wide Challenges */}
+                  {challengesWithStats.filter((c) => c.challenge_type === "company").length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold">Company-wide Challenges</h2>
+                        <Badge variant="outline">Company</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {challengesWithStats
+                          .filter((c) => c.challenge_type === "company")
+                          .map((challenge) => (
+                            <Card key={challenge.id} className="hover:shadow-md transition-shadow">
+                              <CardHeader className="pb-3">
+                                <div className="flex items-start justify-between mb-2">
+                                  <Badge variant="secondary" className="flex items-center gap-1">
+                                    <Trophy className="h-3 w-3" />
+                                    Company-wide
+                                  </Badge>
+                                  <Badge variant="outline">{challenge.category}</Badge>
+                                </div>
+                                <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                <CardDescription className="text-pretty">{challenge.description}</CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                {/* Challenge Stats */}
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-primary">{challenge.participants}</div>
+                                    <p className="text-xs text-muted-foreground">Participants</p>
+                                  </div>
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
+                                    <p className="text-xs text-muted-foreground">Points</p>
+                                  </div>
+                                </div>
+
+                                {/* Progress Bar */}
+                                <div>
+                                  <div className="flex justify-between text-sm mb-1">
+                                    <span className="text-muted-foreground">Participation</span>
+                                    <span className="text-muted-foreground">
+                                      {challenge.participants}/{challenge.maxParticipants}
+                                    </span>
+                                  </div>
+                                  <Progress
+                                    value={(challenge.participants / challenge.maxParticipants) * 100}
+                                    className="h-2"
+                                  />
+                                </div>
+
+                                {/* Duration */}
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Calendar className="h-4 w-4" />
+                                  <span>
+                                    {new Date(challenge.start_date).toLocaleDateString()} -{" "}
+                                    {new Date(challenge.end_date).toLocaleDateString()}
+                                  </span>
+                                </div>
+
+                                <ChallengeCardActions
+                                  challengeId={challenge.id}
+                                  isParticipating={challenge.isParticipating}
+                                  isCompleted={challenge.isCompleted}
+                                  challengeEnded={challenge.challengeEnded}
+                                  challengeType={challenge.challenge_type}
+                                  userProgress={challenge.userProgress}
+                                  targetValue={challenge.target_value}
+                                  progressPercentage={challenge.progressPercentage}
+                                />
+                              </CardContent>
+                            </Card>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Team Challenges */}
+                  {challengesWithStats.filter((c) => c.challenge_type === "team").length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold">Team Challenges</h2>
+                        <Badge variant="outline">Team</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {challengesWithStats
+                          .filter((c) => c.challenge_type === "team")
+                          .map((challenge) => (
+                            <Card key={challenge.id} className="hover:shadow-md transition-shadow">
+                              <CardHeader className="pb-3">
+                                <div className="flex items-start justify-between mb-2">
+                                  <Badge variant="secondary" className="flex items-center gap-1">
+                                    <Trophy className="h-3 w-3" />
+                                    Team
+                                  </Badge>
+                                  <Badge variant="outline">{challenge.category}</Badge>
+                                </div>
+                                <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                <CardDescription className="text-pretty">{challenge.description}</CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-primary">
+                                      {challenge.totalTeamMembers || 0}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">Team Members</p>
+                                  </div>
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
+                                    <p className="text-xs text-muted-foreground">Points</p>
+                                  </div>
+                                </div>
+
+                                {challenge.teamName ? (
+                                  <div className="p-3 bg-primary/10 rounded-lg border-2 border-primary/20">
+                                    <p className="font-semibold text-primary text-lg">{challenge.teamName}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {challenge.totalTeamMembers} team member
+                                      {challenge.totalTeamMembers !== 1 ? "s" : ""}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <div className="p-3 bg-muted/50 rounded-lg">
+                                    <p className="text-sm text-muted-foreground">No team assigned</p>
+                                  </div>
+                                )}
+
+                                {/* Duration */}
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Calendar className="h-4 w-4" />
+                                  <span>
+                                    {new Date(challenge.start_date).toLocaleDateString()} -{" "}
+                                    {new Date(challenge.end_date).toLocaleDateString()}
+                                  </span>
+                                </div>
+
+                                <ChallengeCardActions
+                                  challengeId={challenge.id}
+                                  isParticipating={challenge.isParticipating}
+                                  isCompleted={challenge.isCompleted}
+                                  challengeEnded={challenge.challengeEnded}
+                                  challengeType={challenge.challenge_type}
+                                  userProgress={challenge.userProgress}
+                                  targetValue={challenge.target_value}
+                                  progressPercentage={challenge.progressPercentage}
+                                />
+                              </CardContent>
+                            </Card>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <Card>
@@ -185,14 +406,14 @@ export default async function ChallengesPage() {
                 <div className="space-y-4">
                   {myParticipations.map((participation) => {
                     const challenge = participation.challenges
-                    const progress =
-                      challenge.target_value > 0 ? (participation.current_progress / challenge.target_value) * 100 : 0
+                    const userProgress = progressMap.get(challenge.id)
+                    const progress = userProgress?.progress_percentage || 0
                     const daysLeft = Math.ceil(
                       (new Date(challenge.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24),
                     )
-                    const pointsEarned = participation.completed
-                      ? challenge.points_reward
-                      : Math.floor((progress / 100) * challenge.points_reward)
+                    const pointsEarned = userProgress?.completed
+                      ? challenge.reward_points
+                      : Math.floor((progress / 100) * (challenge.reward_points || 0))
 
                     return (
                       <Card key={participation.id}>
@@ -201,8 +422,8 @@ export default async function ChallengesPage() {
                             <div>
                               <h3 className="font-semibold text-lg">{challenge.title}</h3>
                               <div className="flex items-center gap-4 mt-1">
-                                <Badge variant={participation.completed ? "secondary" : "default"}>
-                                  {participation.completed ? "Completed" : "In Progress"}
+                                <Badge variant={userProgress?.completed ? "default" : "secondary"}>
+                                  {userProgress?.completed ? "Completed" : "In Progress"}
                                 </Badge>
                                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                                   <Clock className="h-4 w-4" />
@@ -220,7 +441,7 @@ export default async function ChallengesPage() {
                             <div className="flex justify-between text-sm">
                               <span>Progress</span>
                               <span>
-                                {participation.current_progress} / {challenge.target_value}
+                                {userProgress?.current_progress || 0} / {challenge.target_value}
                               </span>
                             </div>
                             <Progress value={progress} className="h-3" />
@@ -231,7 +452,11 @@ export default async function ChallengesPage() {
                             <Button asChild>
                               <Link href={`/challenges/${challenge.id}`}>View Details</Link>
                             </Button>
-                            {!participation.completed && <Button variant="outline">Log Progress</Button>}
+                            {!userProgress?.completed && (
+                              <Button variant="outline" asChild>
+                                <Link href="/actions">Log Actions</Link>
+                              </Button>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -255,10 +480,10 @@ export default async function ChallengesPage() {
             </TabsContent>
 
             <TabsContent value="completed" className="space-y-6">
-              {myParticipations.filter((p) => p.completed).length > 0 ? (
+              {myParticipations.filter((p) => progressMap.get(p.challenges.id)?.completed).length > 0 ? (
                 <div className="space-y-4">
                   {myParticipations
-                    .filter((p) => p.completed)
+                    .filter((p) => progressMap.get(p.challenges.id)?.completed)
                     .map((participation) => {
                       const challenge = participation.challenges
                       return (
@@ -268,13 +493,13 @@ export default async function ChallengesPage() {
                               <div>
                                 <h3 className="font-semibold text-lg">{challenge.title}</h3>
                                 <p className="text-muted-foreground">{challenge.description}</p>
-                                <Badge variant="secondary" className="mt-2">
+                                <Badge variant="default" className="mt-2 bg-green-600">
                                   <Award className="h-3 w-3 mr-1" />
                                   Completed
                                 </Badge>
                               </div>
                               <div className="text-right">
-                                <div className="text-2xl font-bold text-primary">{challenge.points_reward}</div>
+                                <div className="text-2xl font-bold text-primary">{challenge.reward_points || 0}</div>
                                 <p className="text-sm text-muted-foreground">Points earned</p>
                               </div>
                             </div>

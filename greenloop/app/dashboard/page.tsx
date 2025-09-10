@@ -56,6 +56,13 @@ export default async function DashboardPage() {
     .eq("is_active", true)
     .limit(3)
 
+  const { data: challengeActivities } = await supabase
+    .from("recent_challenge_activities")
+    .select("*")
+    .eq("user_id", data.user.id)
+    .order("created_at", { ascending: false })
+    .limit(3)
+
   const pointsToNextLevel = (userProfile?.level || 1) * 1000 - (userProfile?.points || 0)
   const levelProgress = ((userProfile?.points || 0) % 1000) / 10
 
@@ -228,6 +235,34 @@ export default async function DashboardPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {challengeActivities?.map((activity) => (
+                    <div
+                      key={`challenge-${activity.id}`}
+                      className="flex items-center justify-between border-l-2 border-primary pl-3"
+                    >
+                      <div>
+                        <p className="font-medium text-sm">Challenge Progress</p>
+                        <p className="text-xs text-muted-foreground">{activity.challenge_title}</p>
+                        <p className="text-xs text-primary">{activity.activity_description}</p>
+                      </div>
+                      <div className="text-right">
+                        {activity.activity_type === "milestone_reached" && (
+                          <Badge variant="secondary" className="text-xs">
+                            🎯 Milestone
+                          </Badge>
+                        )}
+                        {activity.activity_type === "challenge_completed" && (
+                          <Badge variant="default" className="text-xs bg-green-600">
+                            🏆 Completed
+                          </Badge>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {new Date(activity.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+
                   {recentActions?.length ? (
                     recentActions.map((action) => (
                       <div key={action.id} className="flex items-center justify-between">

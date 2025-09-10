@@ -1,5 +1,5 @@
 
-\restrict J73svcw47yFMQ6rzMrkgiM629jT5ir6mV8oUk51Q4bIr7yfgrJ63RUfhvIbF9tC
+\restrict 1aOdyhaCtlddpbAerK8TTYFqikeUk3LflhlPLuwzbWPc4qwWG0heAKHEIxl36p3
 
 
 SET statement_timeout = 0;
@@ -53,6 +53,35 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
 
 
 
+CREATE OR REPLACE FUNCTION "public"."auto_join_personal_challenge"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    -- Auto-join creator to personal challenges
+    IF NEW.challenge_type = 'individual' THEN
+        INSERT INTO public.challenge_participants (
+            challenge_id,
+            user_id,
+            current_progress,
+            completed,
+            joined_at
+        ) VALUES (
+            NEW.id,
+            NEW.created_by,
+            0,
+            false,
+            NOW()
+        );
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."auto_join_personal_challenge"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."calculate_user_level"("user_points" integer) RETURNS integer
     LANGUAGE "plpgsql"
     AS $$
@@ -74,6 +103,57 @@ $$;
 
 
 ALTER FUNCTION "public"."calculate_user_level"("user_points" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    challenge_type TEXT;
+    user_team_id UUID;
+    challenge_team_id UUID;
+    is_team_leader BOOLEAN := FALSE;
+BEGIN
+    -- Get challenge type and team
+    SELECT c.challenge_type, cp.team_id INTO challenge_type, challenge_team_id
+    FROM public.challenges c
+    LEFT JOIN public.challenge_participants cp ON c.id = cp.challenge_id
+    WHERE c.id = challenge_uuid
+    AND cp.user_id = participant_user_id
+    LIMIT 1;
+    
+    -- If not a team challenge, allow leaving
+    IF challenge_type != 'team' THEN
+        RETURN TRUE;
+    END IF;
+    
+    -- Get user's team
+    SELECT tm.team_id INTO user_team_id
+    FROM public.team_members tm
+    WHERE tm.user_id = auth.uid()
+    LIMIT 1;
+    
+    -- Check if user is team leader of the challenge team
+    IF challenge_team_id IS NOT NULL AND user_team_id = challenge_team_id THEN
+        SELECT EXISTS (
+            SELECT 1 FROM public.teams 
+            WHERE id = challenge_team_id 
+            AND team_leader_id = auth.uid()
+        ) INTO is_team_leader;
+        
+        -- Team leaders can remove team members
+        IF is_team_leader THEN
+            RETURN TRUE;
+        END IF;
+    END IF;
+    
+    -- Regular team members can only leave their own participation
+    RETURN auth.uid() = participant_user_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."check_and_award_badges"() RETURNS "trigger"
@@ -134,6 +214,65 @@ $$;
 ALTER FUNCTION "public"."check_and_award_badges"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."check_max_participants"("challenge_uuid" "uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    max_count INTEGER;
+    current_count INTEGER;
+BEGIN
+    -- Get max participants for the challenge
+    SELECT max_participants INTO max_count
+    FROM public.challenges
+    WHERE id = challenge_uuid;
+    
+    -- If no limit, allow join
+    IF max_count IS NULL THEN
+        RETURN TRUE;
+    END IF;
+    
+    -- Count current participants using a direct query
+    SELECT COUNT(*) INTO current_count
+    FROM public.challenge_participants
+    WHERE challenge_id = challenge_uuid;
+    
+    -- Return whether there's space
+    RETURN current_count < max_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."check_max_participants"("challenge_uuid" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."check_personal_challenge_rate_limit"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    recent_count INTEGER;
+BEGIN
+    -- Rate limit personal challenge creation: max 5 per day
+    IF NEW.challenge_type = 'individual' THEN
+        SELECT COUNT(*) INTO recent_count
+        FROM public.challenges
+        WHERE created_by = auth.uid()
+        AND challenge_type = 'individual'
+        AND created_at > NOW() - INTERVAL '24 hours';
+        
+        IF recent_count >= 5 THEN
+            RAISE EXCEPTION 'Rate limit exceeded: Maximum 5 personal challenges per day'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."check_personal_challenge_rate_limit"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."check_privilege_escalation"() RETURNS TABLE("user_id" "uuid", "event_type" "text", "details" "jsonb")
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -179,6 +318,37 @@ $$;
 
 
 ALTER FUNCTION "public"."cleanup_expired_sessions"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  -- Delete any existing participants for this challenge
+  DELETE FROM challenge_participants 
+  WHERE challenge_id = p_challenge_id;
+  
+  -- Insert a single team participant record (not individual user records)
+  INSERT INTO challenge_participants (
+    challenge_id,
+    user_id,
+    team_id,
+    current_progress,
+    completed,
+    joined_at
+  ) VALUES (
+    p_challenge_id,
+    NULL,
+    p_team_id,
+    0,
+    false,
+    NOW()
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."create_user_preferences"() RETURNS "trigger"
@@ -418,6 +588,30 @@ $$;
 ALTER FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p_action" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."log_challenge_activity"("p_challenge_id" "uuid", "p_user_id" "uuid", "p_activity_type" character varying, "p_description" "text", "p_metadata" "jsonb" DEFAULT '{}'::"jsonb") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    INSERT INTO challenge_activity_log (
+        challenge_id,
+        user_id,
+        activity_type,
+        activity_description,
+        metadata
+    ) VALUES (
+        p_challenge_id,
+        p_user_id,
+        p_activity_type,
+        p_description,
+        p_metadata
+    );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."log_challenge_activity"("p_challenge_id" "uuid", "p_user_id" "uuid", "p_activity_type" character varying, "p_description" "text", "p_metadata" "jsonb") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."log_challenge_creation"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -451,6 +645,50 @@ $$;
 ALTER FUNCTION "public"."log_challenge_creation"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."log_personal_challenge_security_event"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    -- Log security-relevant events for personal challenges
+    IF (TG_OP = 'INSERT' AND NEW.challenge_type = 'individual') OR
+       (TG_OP = 'UPDATE' AND (OLD.challenge_type != NEW.challenge_type OR 
+                              OLD.max_participants != NEW.max_participants OR
+                              OLD.reward_points != NEW.reward_points)) THEN
+        
+        INSERT INTO public.security_audit_log (
+            user_id,
+            event_type,
+            resource_type,
+            resource_id,
+            details,
+            severity
+        ) VALUES (
+            auth.uid(),
+            'personal_challenge_' || lower(TG_OP),
+            'challenge',
+            COALESCE(NEW.id, OLD.id),
+            jsonb_build_object(
+                'challenge_type', COALESCE(NEW.challenge_type, OLD.challenge_type),
+                'max_participants', COALESCE(NEW.max_participants, OLD.max_participants),
+                'reward_points', COALESCE(NEW.reward_points, OLD.reward_points),
+                'operation', TG_OP
+            ),
+            CASE 
+                WHEN NEW.challenge_type = 'individual' AND NEW.reward_points > 0 THEN 'high'
+                WHEN NEW.challenge_type = 'individual' AND NEW.max_participants != 1 THEN 'high'
+                ELSE 'medium'
+            END
+        );
+    END IF;
+    
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."log_personal_challenge_security_event"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text" DEFAULT NULL::"text", "p_resource_id" "uuid" DEFAULT NULL::"uuid", "p_details" "jsonb" DEFAULT NULL::"jsonb", "p_severity" "text" DEFAULT 'medium'::"text") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -465,6 +703,81 @@ $$;
 
 
 ALTER FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."recalculate_all_challenge_progress"() RETURNS "void"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    participant_record RECORD;
+    new_progress NUMERIC := 0;
+BEGIN
+    -- Loop through all active challenge participants
+    FOR participant_record IN 
+        SELECT cp.*, c.title, c.category, c.target_metric, c.target_value, c.start_date, c.end_date
+        FROM challenge_participants cp
+        JOIN challenges c ON cp.challenge_id = c.id
+        WHERE c.is_active = true
+    LOOP
+        -- Calculate progress based on target metric
+        IF participant_record.target_metric = 'actions' THEN
+            SELECT COUNT(*) INTO new_progress
+            FROM user_actions ua
+            JOIN sustainability_actions sa ON ua.action_id = sa.id
+            JOIN action_categories ac ON sa.category_id = ac.id
+            WHERE ua.user_id = participant_record.user_id
+            AND ua.completed_at >= participant_record.start_date
+            AND ua.completed_at <= participant_record.end_date + INTERVAL '1 day'
+            AND ua.verification_status = 'approved'
+            AND (participant_record.category = 'general' OR ac.name = participant_record.category);
+            
+            new_progress := LEAST((new_progress / NULLIF(participant_record.target_value, 0)) * 100, 100);
+            
+        ELSIF participant_record.target_metric = 'points' THEN
+            SELECT COALESCE(SUM(sa.points_value), 0) INTO new_progress
+            FROM user_actions ua
+            JOIN sustainability_actions sa ON ua.action_id = sa.id
+            JOIN action_categories ac ON sa.category_id = ac.id
+            WHERE ua.user_id = participant_record.user_id
+            AND ua.completed_at >= participant_record.start_date
+            AND ua.completed_at <= participant_record.end_date + INTERVAL '1 day'
+            AND ua.verification_status = 'approved'
+            AND (participant_record.category = 'general' OR ac.name = participant_record.category);
+            
+            new_progress := LEAST((new_progress / NULLIF(participant_record.target_value, 0)) * 100, 100);
+            
+        ELSIF participant_record.target_metric = 'co2_saved' THEN
+            SELECT COALESCE(SUM(sa.co2_impact), 0) INTO new_progress
+            FROM user_actions ua
+            JOIN sustainability_actions sa ON ua.action_id = sa.id
+            JOIN action_categories ac ON sa.category_id = ac.id
+            WHERE ua.user_id = participant_record.user_id
+            AND ua.completed_at >= participant_record.start_date
+            AND ua.completed_at <= participant_record.end_date + INTERVAL '1 day'
+            AND ua.verification_status = 'approved'
+            AND (participant_record.category = 'general' OR ac.name = participant_record.category);
+            
+            new_progress := LEAST((new_progress / NULLIF(participant_record.target_value, 0)) * 100, 100);
+        END IF;
+        
+        -- Update participant progress
+        UPDATE challenge_participants 
+        SET current_progress = new_progress,
+            completed = (new_progress >= 100),
+            completed_at = CASE 
+                WHEN new_progress >= 100 AND completed = false THEN NOW()
+                ELSE completed_at
+            END
+        WHERE id = participant_record.id;
+        
+    END LOOP;
+    
+    RAISE NOTICE 'Challenge progress recalculation completed';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."recalculate_all_challenge_progress"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") RETURNS "void"
@@ -519,6 +832,37 @@ $$;
 ALTER FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  max_participants_count INTEGER;
+  current_participants_count INTEGER;
+BEGIN
+  -- Get max participants from challenges table
+  SELECT max_participants INTO max_participants_count
+  FROM challenges 
+  WHERE id = challenge_id_param;
+  
+  -- If no limit set, return a high number
+  IF max_participants_count IS NULL THEN
+    RETURN 999999;
+  END IF;
+  
+  -- Count current participants
+  SELECT COUNT(*) INTO current_participants_count
+  FROM challenge_participants 
+  WHERE challenge_id = challenge_id_param;
+  
+  -- Return remaining spots
+  RETURN max_participants_count - current_participants_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."simple_update_user_co2_savings"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -568,78 +912,237 @@ $$;
 ALTER FUNCTION "public"."trigger_log_admin_action"() OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."update_challenge_progress"() RETURNS "trigger"
-    LANGUAGE "plpgsql"
+CREATE OR REPLACE FUNCTION "public"."update_challenge_progress_on_action"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 DECLARE
-  participant_record RECORD;
-  progress_value INTEGER;
-  target_user_id UUID;
+    challenge_record RECORD;
+    action_record RECORD;
+    category_name TEXT;
+    user_actions_count INTEGER;
+    progress_pct NUMERIC;
+    total_points NUMERIC;
+    total_co2 NUMERIC;
+    calculated_progress NUMERIC;
+    old_progress NUMERIC := 0;
+    milestone_reached BOOLEAN := FALSE;
+    challenge_completed BOOLEAN := FALSE;
 BEGIN
-  -- Use NEW.id instead of NEW.user_id when triggered from users table
-  -- Determine the user_id based on which table triggered this function
-  IF TG_TABLE_NAME = 'users' THEN
-    target_user_id := NEW.id;  -- When triggered from users table, use NEW.id
-  ELSIF TG_TABLE_NAME = 'user_actions' THEN
-    target_user_id := NEW.user_id;  -- When triggered from user_actions table, use NEW.user_id
-  ELSE
-    -- Fallback: try to determine from context
-    target_user_id := COALESCE(NEW.id, NEW.user_id);
-  END IF;
-
-  -- Only proceed if we have a valid user_id
-  IF target_user_id IS NULL THEN
-    RETURN NEW;
-  END IF;
-
-  -- Update progress for individual challenges
-  FOR participant_record IN 
-    SELECT cp.* FROM public.challenge_participants cp
-    INNER JOIN public.challenges c ON cp.challenge_id = c.id
-    WHERE cp.user_id = target_user_id 
-    AND c.challenge_type = 'individual'
-    AND c.start_date <= NOW() 
-    AND c.end_date >= NOW()
-    AND cp.completed = false
-  LOOP
-    -- Calculate progress based on challenge metric
-    SELECT 
-      CASE 
-        WHEN c.target_metric = 'points' THEN u.points
-        WHEN c.target_metric = 'actions' THEN (
-          SELECT COUNT(*) FROM public.user_actions ua 
-          WHERE ua.user_id = target_user_id 
-          AND ua.completed_at >= c.start_date
-          AND ua.verification_status = 'approved'
+    RAISE NOTICE 'Trigger fired for user_action: %', NEW.id;
+    
+    -- Get action details with category
+    SELECT sa.*, ac.name as category_name
+    INTO action_record
+    FROM sustainability_actions sa
+    JOIN action_categories ac ON sa.category_id = ac.id
+    WHERE sa.id = NEW.action_id;
+    
+    IF NOT FOUND THEN
+        RAISE NOTICE 'Action not found: %', NEW.action_id;
+        RETURN NEW;
+    END IF;
+    
+    category_name := action_record.category_name;
+    RAISE NOTICE 'Action category: %, Action title: %', category_name, action_record.title;
+    
+    -- Find matching challenges for this user and category
+    FOR challenge_record IN
+        SELECT c.*, cp.user_id, cp.current_progress as old_current_progress
+        FROM challenges c
+        JOIN challenge_participants cp ON c.id = cp.challenge_id
+        WHERE cp.user_id = NEW.user_id
+        AND c.is_active = true
+        AND NEW.completed_at <= c.end_date
+        AND (c.category = 'general' OR c.category = category_name)
+    LOOP
+        RAISE NOTICE 'Processing challenge: % (%) for user: %', challenge_record.title, challenge_record.id, NEW.user_id;
+        
+        -- Store old progress for comparison
+        old_progress := challenge_record.old_current_progress;
+        
+        -- Calculate progress based on target metric
+        IF challenge_record.target_metric = 'actions' THEN
+            SELECT COUNT(*)
+            INTO user_actions_count
+            FROM user_actions ua
+            JOIN sustainability_actions sa ON ua.action_id = sa.id
+            JOIN action_categories ac ON sa.category_id = ac.id
+            WHERE ua.user_id = NEW.user_id
+            AND ua.verification_status = 'approved'
+            AND ua.completed_at <= challenge_record.end_date
+            AND (challenge_record.category = 'general' OR ac.name = challenge_record.category);
+            
+            calculated_progress := user_actions_count;
+            
+        ELSIF challenge_record.target_metric = 'points' THEN
+            SELECT COALESCE(SUM(sa.points_value), 0)
+            INTO total_points
+            FROM user_actions ua
+            JOIN sustainability_actions sa ON ua.action_id = sa.id
+            JOIN action_categories ac ON sa.category_id = ac.id
+            WHERE ua.user_id = NEW.user_id
+            AND ua.verification_status = 'approved'
+            AND ua.completed_at <= challenge_record.end_date
+            AND (challenge_record.category = 'general' OR ac.name = challenge_record.category);
+            
+            calculated_progress := total_points;
+            user_actions_count := calculated_progress;
+            
+        ELSIF challenge_record.target_metric = 'co2_saved' THEN
+            SELECT COALESCE(SUM(sa.co2_impact), 0)
+            INTO total_co2
+            FROM user_actions ua
+            JOIN sustainability_actions sa ON ua.action_id = sa.id
+            JOIN action_categories ac ON sa.category_id = ac.id
+            WHERE ua.user_id = NEW.user_id
+            AND ua.verification_status = 'approved'
+            AND ua.completed_at <= challenge_record.end_date
+            AND (challenge_record.category = 'general' OR ac.name = challenge_record.category);
+            
+            calculated_progress := total_co2;
+            user_actions_count := calculated_progress;
+        END IF;
+        
+        -- Calculate progress percentage
+        IF challenge_record.target_value > 0 THEN
+            progress_pct := LEAST(100.0, (calculated_progress / challenge_record.target_value::NUMERIC) * 100.0);
+        ELSE
+            progress_pct := CASE WHEN calculated_progress > 0 THEN 100.0 ELSE 0.0 END;
+        END IF;
+        
+        -- Check for milestones and completion
+        milestone_reached := (calculated_progress > old_progress AND calculated_progress > 0);
+        challenge_completed := (progress_pct >= 100 AND old_progress < challenge_record.target_value);
+        
+        RAISE NOTICE 'Calculated progress: % / % = % percent for challenge: %', 
+            calculated_progress, challenge_record.target_value, progress_pct, challenge_record.id;
+        
+        -- Insert or update challenge progress
+        INSERT INTO challenge_progress (
+            challenge_id,
+            user_id,
+            actions_completed,
+            progress_percentage,
+            current_progress,
+            completed,
+            last_updated
         )
-        WHEN c.target_metric = 'co2_saved' THEN FLOOR(u.total_co2_saved)
-        ELSE 0
-      END INTO progress_value
-    FROM public.users u, public.challenges c
-    WHERE u.id = target_user_id AND c.id = participant_record.challenge_id;
-
-    -- Update participant progress
-    UPDATE public.challenge_participants
-    SET 
-      current_progress = progress_value,
-      completed = (progress_value >= (
-        SELECT target_value FROM public.challenges WHERE id = participant_record.challenge_id
-      )),
-      completed_at = CASE 
-        WHEN progress_value >= (
-          SELECT target_value FROM public.challenges WHERE id = participant_record.challenge_id
-        ) THEN NOW()
-        ELSE NULL
-      END
-    WHERE id = participant_record.id;
-  END LOOP;
-
-  RETURN NEW;
+        VALUES (
+            challenge_record.id,
+            NEW.user_id,
+            COALESCE(user_actions_count, 0),
+            progress_pct,
+            calculated_progress::INTEGER,
+            progress_pct >= 100,
+            NOW()
+        )
+        ON CONFLICT (challenge_id, user_id)
+        DO UPDATE SET
+            actions_completed = EXCLUDED.actions_completed,
+            progress_percentage = EXCLUDED.progress_percentage,
+            current_progress = EXCLUDED.current_progress,
+            completed = EXCLUDED.completed,
+            last_updated = EXCLUDED.last_updated;
+            
+        -- Update challenge_participants current_progress
+        UPDATE challenge_participants 
+        SET current_progress = calculated_progress::INTEGER,
+            completed = (progress_pct >= 100),
+            completed_at = CASE 
+                WHEN progress_pct >= 100 AND completed = false THEN NOW()
+                ELSE completed_at
+            END
+        WHERE challenge_id = challenge_record.id AND user_id = NEW.user_id;
+        
+        -- Log challenge activities
+        IF milestone_reached THEN
+            PERFORM log_challenge_activity(
+                challenge_record.id,
+                NEW.user_id,
+                'progress_update',
+                format('%s completed "%s" and made progress in challenge "%s"', 
+                    (SELECT first_name || ' ' || last_name FROM users WHERE id = NEW.user_id),
+                    action_record.title,
+                    challenge_record.title
+                ),
+                jsonb_build_object(
+                    'action_title', action_record.title,
+                    'points_earned', action_record.points_value,
+                    'co2_saved', action_record.co2_impact,
+                    'old_progress', old_progress,
+                    'new_progress', calculated_progress,
+                    'progress_percentage', progress_pct,
+                    'target_metric', challenge_record.target_metric
+                )
+            );
+        END IF;
+        
+        IF challenge_completed THEN
+            PERFORM log_challenge_activity(
+                challenge_record.id,
+                NEW.user_id,
+                'challenge_completed',
+                format('%s completed challenge "%s"!', 
+                    (SELECT first_name || ' ' || last_name FROM users WHERE id = NEW.user_id),
+                    challenge_record.title
+                ),
+                jsonb_build_object(
+                    'target_value', challenge_record.target_value,
+                    'final_progress', calculated_progress,
+                    'target_metric', challenge_record.target_metric,
+                    'reward_points', challenge_record.reward_points
+                )
+            );
+        END IF;
+        
+        -- Check for milestone achievements (25%, 50%, 75%)
+        IF old_progress < challenge_record.target_value * 0.25 AND calculated_progress >= challenge_record.target_value * 0.25 THEN
+            PERFORM log_challenge_activity(
+                challenge_record.id,
+                NEW.user_id,
+                'milestone_reached',
+                format('%s reached 25%% completion in challenge "%s"', 
+                    (SELECT first_name || ' ' || last_name FROM users WHERE id = NEW.user_id),
+                    challenge_record.title
+                ),
+                jsonb_build_object('milestone', '25%', 'progress', calculated_progress, 'target_metric', challenge_record.target_metric)
+            );
+        END IF;
+        
+        IF old_progress < challenge_record.target_value * 0.50 AND calculated_progress >= challenge_record.target_value * 0.50 THEN
+            PERFORM log_challenge_activity(
+                challenge_record.id,
+                NEW.user_id,
+                'milestone_reached',
+                format('%s reached 50%% completion in challenge "%s"', 
+                    (SELECT first_name || ' ' || last_name FROM users WHERE id = NEW.user_id),
+                    challenge_record.title
+                ),
+                jsonb_build_object('milestone', '50%', 'progress', calculated_progress, 'target_metric', challenge_record.target_metric)
+            );
+        END IF;
+        
+        IF old_progress < challenge_record.target_value * 0.75 AND calculated_progress >= challenge_record.target_value * 0.75 THEN
+            PERFORM log_challenge_activity(
+                challenge_record.id,
+                NEW.user_id,
+                'milestone_reached',
+                format('%s reached 75%% completion in challenge "%s"', 
+                    (SELECT first_name || ' ' || last_name FROM users WHERE id = NEW.user_id),
+                    challenge_record.title
+                ),
+                jsonb_build_object('milestone', '75%', 'progress', calculated_progress, 'target_metric', challenge_record.target_metric)
+            );
+        END IF;
+        
+    END LOOP;
+    
+    RETURN NEW;
 END;
 $$;
 
 
-ALTER FUNCTION "public"."update_challenge_progress"() OWNER TO "postgres";
+ALTER FUNCTION "public"."update_challenge_progress_on_action"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_team_stats"() RETURNS "trigger"
@@ -761,6 +1264,44 @@ $$;
 
 
 ALTER FUNCTION "public"."update_user_points"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."validate_personal_challenge"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    -- Set start_date to creation time if not provided
+    IF NEW.start_date IS NULL THEN
+        NEW.start_date = NOW();
+    END IF;
+    
+    -- Validate personal challenge constraints
+    IF NEW.challenge_type = 'individual' THEN
+        -- Personal challenges must have exactly 1 max participant
+        IF NEW.max_participants != 1 THEN
+            RAISE EXCEPTION 'Personal challenges must have exactly 1 participant'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        
+        -- Personal challenges cannot have reward points
+        IF NEW.reward_points > 0 THEN
+            RAISE EXCEPTION 'Personal challenges cannot have reward points'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        
+        -- Personal challenges can only be created by the user for themselves
+        IF NEW.created_by != auth.uid() THEN
+            RAISE EXCEPTION 'Personal challenges can only be created by the user for themselves'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."validate_personal_challenge"() OWNER TO "postgres";
 
 SET default_tablespace = '';
 
@@ -976,7 +1517,7 @@ CREATE TABLE IF NOT EXISTS "public"."challenges" (
     "title" "text" NOT NULL,
     "description" "text" NOT NULL,
     "challenge_type" "text" NOT NULL,
-    "start_date" timestamp with time zone NOT NULL,
+    "start_date" timestamp with time zone DEFAULT "now"() NOT NULL,
     "end_date" timestamp with time zone NOT NULL,
     "target_metric" "text" NOT NULL,
     "target_value" integer NOT NULL,
@@ -1271,6 +1812,59 @@ CREATE TABLE IF NOT EXISTS "public"."badges" (
 ALTER TABLE "public"."badges" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."challenge_activity_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "challenge_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "activity_type" character varying(50) NOT NULL,
+    "activity_description" "text" NOT NULL,
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"()
+);
+
+
+ALTER TABLE "public"."challenge_activity_log" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."challenge_progress" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "challenge_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "actions_completed" integer DEFAULT 0,
+    "progress_percentage" numeric(5,2) DEFAULT 0.00,
+    "last_updated" timestamp with time zone DEFAULT "now"(),
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "completed" boolean DEFAULT false,
+    "current_progress" integer DEFAULT 0
+);
+
+
+ALTER TABLE "public"."challenge_progress" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."challenges_public" AS
+ SELECT "id",
+    "title",
+    "description",
+    "challenge_type",
+    "category",
+    "start_date",
+    "end_date",
+    "reward_points",
+    "target_metric",
+    "target_value",
+    "reward_description",
+    "max_participants",
+    "is_active",
+    "created_by",
+    "created_at"
+   FROM "public"."challenges"
+  WHERE ("is_active" = true);
+
+
+ALTER VIEW "public"."challenges_public" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."content_items" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "title" "text" NOT NULL,
@@ -1323,6 +1917,29 @@ CREATE TABLE IF NOT EXISTS "public"."password_resets" (
 
 
 ALTER TABLE "public"."password_resets" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."recent_challenge_activities" AS
+ SELECT "cal"."id",
+    "cal"."challenge_id",
+    "cal"."user_id",
+    "cal"."activity_type",
+    "cal"."activity_description",
+    "cal"."metadata",
+    "cal"."created_at",
+    "c"."title" AS "challenge_title",
+    "c"."category" AS "challenge_category",
+    "c"."target_metric",
+    "u"."first_name",
+    "u"."last_name",
+    "u"."avatar_url"
+   FROM (("public"."challenge_activity_log" "cal"
+     JOIN "public"."challenges" "c" ON (("cal"."challenge_id" = "c"."id")))
+     JOIN "public"."users" "u" ON (("cal"."user_id" = "u"."id")))
+  ORDER BY "cal"."created_at" DESC;
+
+
+ALTER VIEW "public"."recent_challenge_activities" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."security_audit_log" (
@@ -1556,8 +2173,23 @@ ALTER TABLE ONLY "public"."badges"
 
 
 
+ALTER TABLE ONLY "public"."challenge_activity_log"
+    ADD CONSTRAINT "challenge_activity_log_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."challenge_participants"
     ADD CONSTRAINT "challenge_participants_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."challenge_progress"
+    ADD CONSTRAINT "challenge_progress_challenge_id_user_id_key" UNIQUE ("challenge_id", "user_id");
+
+
+
+ALTER TABLE ONLY "public"."challenge_progress"
+    ADD CONSTRAINT "challenge_progress_pkey" PRIMARY KEY ("id");
 
 
 
@@ -1709,11 +2341,39 @@ CREATE INDEX "idx_admin_permissions_active" ON "public"."admin_permissions" USIN
 
 
 
+CREATE INDEX "idx_challenge_activity_log_activity_type" ON "public"."challenge_activity_log" USING "btree" ("activity_type");
+
+
+
+CREATE INDEX "idx_challenge_activity_log_challenge_id" ON "public"."challenge_activity_log" USING "btree" ("challenge_id");
+
+
+
+CREATE INDEX "idx_challenge_activity_log_created_at" ON "public"."challenge_activity_log" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_challenge_activity_log_user_id" ON "public"."challenge_activity_log" USING "btree" ("user_id");
+
+
+
 CREATE INDEX "idx_challenge_participants_challenge_completed" ON "public"."challenge_participants" USING "btree" ("challenge_id", "completed");
 
 
 
 CREATE INDEX "idx_challenge_participants_challenge_id" ON "public"."challenge_participants" USING "btree" ("challenge_id");
+
+
+
+CREATE INDEX "idx_challenge_progress_challenge_id" ON "public"."challenge_progress" USING "btree" ("challenge_id");
+
+
+
+CREATE INDEX "idx_challenge_progress_last_updated" ON "public"."challenge_progress" USING "btree" ("last_updated");
+
+
+
+CREATE INDEX "idx_challenge_progress_user_id" ON "public"."challenge_progress" USING "btree" ("user_id");
 
 
 
@@ -1936,6 +2596,14 @@ CREATE OR REPLACE VIEW "public"."admin_user_stats" AS
 
 
 
+CREATE OR REPLACE TRIGGER "auto_join_personal_challenge_trigger" AFTER INSERT ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."auto_join_personal_challenge"();
+
+
+
+CREATE OR REPLACE TRIGGER "check_personal_challenge_rate_limit_trigger" BEFORE INSERT ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."check_personal_challenge_rate_limit"();
+
+
+
 CREATE OR REPLACE TRIGGER "create_user_preferences_trigger" AFTER INSERT ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."create_user_preferences"();
 
 
@@ -1952,6 +2620,10 @@ CREATE OR REPLACE TRIGGER "log_admin_users_changes" AFTER INSERT OR DELETE OR UP
 
 
 
+CREATE OR REPLACE TRIGGER "log_personal_challenge_security_trigger" AFTER INSERT OR UPDATE ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."log_personal_challenge_security_event"();
+
+
+
 CREATE OR REPLACE TRIGGER "on_point_transaction_created" AFTER INSERT ON "public"."point_transactions" FOR EACH ROW EXECUTE FUNCTION "public"."update_user_points"();
 
 
@@ -1960,15 +2632,7 @@ CREATE OR REPLACE TRIGGER "on_team_member_change" AFTER INSERT OR DELETE OR UPDA
 
 
 
-CREATE OR REPLACE TRIGGER "on_user_action_challenge_progress" AFTER INSERT OR UPDATE ON "public"."user_actions" FOR EACH ROW WHEN (("new"."verification_status" = 'approved'::"text")) EXECUTE FUNCTION "public"."update_challenge_progress"();
-
-
-
 CREATE OR REPLACE TRIGGER "on_user_action_for_team_stats" AFTER INSERT OR UPDATE ON "public"."user_actions" FOR EACH ROW WHEN (("new"."verification_status" = 'approved'::"text")) EXECUTE FUNCTION "public"."update_team_stats"();
-
-
-
-CREATE OR REPLACE TRIGGER "on_user_progress_updated" AFTER UPDATE ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."update_challenge_progress"();
 
 
 
@@ -1989,6 +2653,14 @@ CREATE OR REPLACE TRIGGER "trigger_log_challenge_creation" AFTER INSERT ON "publ
 
 
 CREATE OR REPLACE TRIGGER "trigger_update_user_level" BEFORE UPDATE OF "points" ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."update_user_level"();
+
+
+
+CREATE OR REPLACE TRIGGER "update_challenge_progress_trigger" AFTER INSERT OR UPDATE ON "public"."user_actions" FOR EACH ROW WHEN (("new"."verification_status" = 'approved'::"text")) EXECUTE FUNCTION "public"."update_challenge_progress_on_action"();
+
+
+
+CREATE OR REPLACE TRIGGER "validate_personal_challenge_trigger" BEFORE INSERT OR UPDATE ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."validate_personal_challenge"();
 
 
 
@@ -2017,6 +2689,16 @@ ALTER TABLE ONLY "public"."admin_permissions"
 
 
 
+ALTER TABLE ONLY "public"."challenge_activity_log"
+    ADD CONSTRAINT "challenge_activity_log_challenge_id_fkey" FOREIGN KEY ("challenge_id") REFERENCES "public"."challenges"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."challenge_activity_log"
+    ADD CONSTRAINT "challenge_activity_log_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."challenge_participants"
     ADD CONSTRAINT "challenge_participants_challenge_id_fkey" FOREIGN KEY ("challenge_id") REFERENCES "public"."challenges"("id") ON DELETE CASCADE;
 
@@ -2029,6 +2711,16 @@ ALTER TABLE ONLY "public"."challenge_participants"
 
 ALTER TABLE ONLY "public"."challenge_participants"
     ADD CONSTRAINT "challenge_participants_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."challenge_progress"
+    ADD CONSTRAINT "challenge_progress_challenge_id_fkey" FOREIGN KEY ("challenge_id") REFERENCES "public"."challenges"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."challenge_progress"
+    ADD CONSTRAINT "challenge_progress_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -2132,12 +2824,6 @@ ALTER TABLE ONLY "public"."users"
 
 
 
-CREATE POLICY "Admins can create any challenge" ON "public"."challenges" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
-
-
-
 CREATE POLICY "Admins can insert admin activities" ON "public"."admin_activities" FOR INSERT WITH CHECK (((EXISTS ( SELECT 1
    FROM "public"."users"
   WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) AND ("admin_id" = "auth"."uid"())));
@@ -2156,21 +2842,7 @@ CREATE POLICY "Admins can view all preferences" ON "public"."user_preferences" F
 
 
 
-CREATE POLICY "Team members can create team challenges" ON "public"."challenges" FOR INSERT WITH CHECK ((("challenge_type" = 'team'::"text") AND ("created_by" = "auth"."uid"())));
-
-
-
-CREATE POLICY "Users can create individual challenges" ON "public"."challenges" FOR INSERT WITH CHECK ((("challenge_type" = 'individual'::"text") AND ("created_by" = "auth"."uid"())));
-
-
-
 CREATE POLICY "Users can insert their own preferences" ON "public"."user_preferences" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "Users can join challenges" ON "public"."challenge_participants" FOR INSERT WITH CHECK ((("user_id" = "auth"."uid"()) OR (EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true))))));
 
 
 
@@ -2250,16 +2922,46 @@ CREATE POLICY "badges_select_all" ON "public"."badges" FOR SELECT USING (("auth"
 
 
 
+CREATE POLICY "challenge_activity_insert_system" ON "public"."challenge_activity_log" FOR INSERT WITH CHECK (true);
+
+
+
+ALTER TABLE "public"."challenge_activity_log" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "challenge_activity_select_enhanced" ON "public"."challenge_activity_log" FOR SELECT USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
+   FROM ("public"."challenge_participants" "cp"
+     JOIN "public"."challenges" "c" ON (("cp"."challenge_id" = "c"."id")))
+  WHERE (("cp"."challenge_id" = "challenge_activity_log"."challenge_id") AND ("cp"."user_id" = "auth"."uid"()) AND ("c"."challenge_type" = ANY (ARRAY['team'::"text", 'company'::"text"]))))) OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true))))));
+
+
+
 ALTER TABLE "public"."challenge_participants" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "challenge_participants_insert_own" ON "public"."challenge_participants" FOR INSERT WITH CHECK ((("auth"."uid"() = "user_id") OR ("auth"."uid"() IN ( SELECT "team_members"."user_id"
-   FROM "public"."team_members"
-  WHERE ("team_members"."team_id" = "challenge_participants"."team_id")))));
+CREATE POLICY "challenge_participants_join_safe" ON "public"."challenge_participants" FOR INSERT WITH CHECK ((("auth"."uid"() = "user_id") AND (EXISTS ( SELECT 1
+   FROM "public"."challenges" "c"
+  WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."is_active" = true) AND ("c"."end_date" > "now"()) AND (("c"."challenge_type" = ANY (ARRAY['team'::"text", 'company'::"text"])) OR (("c"."challenge_type" = 'individual'::"text") AND ("c"."created_by" = "auth"."uid"()))))))));
+
+
+
+CREATE POLICY "challenge_participants_leave_final" ON "public"."challenge_participants" FOR DELETE USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR "public"."can_leave_team_challenge"("user_id", "challenge_id")));
 
 
 
 CREATE POLICY "challenge_participants_select_all" ON "public"."challenge_participants" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
+
+
+
+CREATE POLICY "challenge_participants_select_enhanced" ON "public"."challenge_participants" FOR SELECT USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
+   FROM "public"."challenges" "c"
+  WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."challenge_type" = ANY (ARRAY['team'::"text", 'company'::"text"]))))) OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true))))));
 
 
 
@@ -2269,7 +2971,43 @@ CREATE POLICY "challenge_participants_update_own" ON "public"."challenge_partici
 
 
 
+ALTER TABLE "public"."challenge_progress" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "challenge_progress_insert_system" ON "public"."challenge_progress" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "challenge_progress_insert_system_only" ON "public"."challenge_progress" FOR INSERT WITH CHECK (("public"."is_admin"() OR ("current_setting"('role'::"text") = 'service_role'::"text")));
+
+
+
+CREATE POLICY "challenge_progress_select_enhanced" ON "public"."challenge_progress" FOR SELECT USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
+   FROM "public"."challenges" "c"
+  WHERE (("c"."id" = "challenge_progress"."challenge_id") AND ("c"."challenge_type" = ANY (ARRAY['team'::"text", 'company'::"text"]))))) OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true))))));
+
+
+
+CREATE POLICY "challenge_progress_update_system" ON "public"."challenge_progress" FOR UPDATE USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "challenge_progress_update_system_only" ON "public"."challenge_progress" FOR UPDATE USING (("public"."is_admin"() OR ("current_setting"('role'::"text") = 'service_role'::"text")));
+
+
+
 ALTER TABLE "public"."challenges" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "challenges_create_enhanced" ON "public"."challenges" FOR INSERT WITH CHECK ((("auth"."uid"() = "created_by") AND ((("challenge_type" = 'individual'::"text") AND ("max_participants" = 1) AND ("reward_points" = 0)) OR (("challenge_type" = 'team'::"text") AND (EXISTS ( SELECT 1
+   FROM ("public"."team_members" "tm"
+     JOIN "public"."teams" "t" ON (("tm"."team_id" = "t"."id")))
+  WHERE (("tm"."user_id" = "auth"."uid"()) AND ("t"."is_active" = true))))) OR (("challenge_type" = 'company'::"text") AND (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true))))))));
+
 
 
 CREATE POLICY "challenges_delete_admin" ON "public"."challenges" FOR DELETE USING (("auth"."uid"() IN ( SELECT "users"."id"
@@ -2278,7 +3016,11 @@ CREATE POLICY "challenges_delete_admin" ON "public"."challenges" FOR DELETE USIN
 
 
 
-CREATE POLICY "challenges_delete_admin_only" ON "public"."challenges" FOR DELETE USING ("public"."is_admin"());
+CREATE POLICY "challenges_delete_enhanced" ON "public"."challenges" FOR DELETE USING (((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR (("auth"."uid"() = "created_by") AND ("challenge_type" = 'individual'::"text") AND (NOT (EXISTS ( SELECT 1
+   FROM "public"."challenge_participants"
+  WHERE (("challenge_participants"."challenge_id" = "challenges"."id") AND ("challenge_participants"."user_id" <> "auth"."uid"()))))))));
 
 
 
@@ -2288,11 +3030,13 @@ CREATE POLICY "challenges_insert_admin_or_creator" ON "public"."challenges" FOR 
 
 
 
-CREATE POLICY "challenges_insert_restricted" ON "public"."challenges" FOR INSERT WITH CHECK ((("auth"."uid"() = "created_by") AND (("challenge_type" = 'individual'::"text") OR (("challenge_type" = 'team'::"text") AND "public"."is_team_member"()) OR (("challenge_type" = 'company'::"text") AND "public"."is_admin"()))));
-
-
-
 CREATE POLICY "challenges_select_all" ON "public"."challenges" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
+
+
+
+CREATE POLICY "challenges_select_enhanced" ON "public"."challenges" FOR SELECT USING ((("challenge_type" = ANY (ARRAY['team'::"text", 'company'::"text"])) OR (("challenge_type" = 'individual'::"text") AND ("created_by" = "auth"."uid"())) OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true))))));
 
 
 
@@ -2302,7 +3046,11 @@ CREATE POLICY "challenges_update_admin_or_creator" ON "public"."challenges" FOR 
 
 
 
-CREATE POLICY "challenges_update_secure" ON "public"."challenges" FOR UPDATE USING ((("auth"."uid"() = "created_by") OR "public"."is_admin"())) WITH CHECK ((("auth"."uid"() = "created_by") OR "public"."is_admin"()));
+CREATE POLICY "challenges_update_enhanced" ON "public"."challenges" FOR UPDATE USING (((("auth"."uid"() = "created_by") AND (("challenge_type" <> 'individual'::"text") OR (("challenge_type" = 'individual'::"text") AND ("max_participants" = 1) AND ("reward_points" = 0)))) OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))))) WITH CHECK (((("challenge_type" <> 'individual'::"text") OR (("challenge_type" = 'individual'::"text") AND ("max_participants" = 1) AND ("reward_points" = 0))) AND (("auth"."uid"() = "created_by") OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))))));
 
 
 
@@ -2568,6 +3316,38 @@ CREATE POLICY "users_update_secure" ON "public"."users" FOR UPDATE USING (((("au
 ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
 
 
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."admin_activities";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."admin_permissions";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."badges";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."content_items";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."point_transactions";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."security_audit_log";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."user_analytics";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."users";
+
+
+
 GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
@@ -2725,15 +3505,39 @@ GRANT USAGE ON SCHEMA "public" TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."auto_join_personal_challenge"() TO "anon";
+GRANT ALL ON FUNCTION "public"."auto_join_personal_challenge"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."auto_join_personal_challenge"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "anon";
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."check_max_participants"("challenge_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."check_max_participants"("challenge_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."check_max_participants"("challenge_uuid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."check_personal_challenge_rate_limit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."check_personal_challenge_rate_limit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."check_personal_challenge_rate_limit"() TO "service_role";
 
 
 
@@ -2753,6 +3557,12 @@ GRANT ALL ON FUNCTION "public"."cleanup_expired_password_resets"() TO "service_r
 GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "anon";
 GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "service_role";
 
 
 
@@ -2817,9 +3627,21 @@ GRANT ALL ON FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p
 
 
 
+GRANT ALL ON FUNCTION "public"."log_challenge_activity"("p_challenge_id" "uuid", "p_user_id" "uuid", "p_activity_type" character varying, "p_description" "text", "p_metadata" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."log_challenge_activity"("p_challenge_id" "uuid", "p_user_id" "uuid", "p_activity_type" character varying, "p_description" "text", "p_metadata" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."log_challenge_activity"("p_challenge_id" "uuid", "p_user_id" "uuid", "p_activity_type" character varying, "p_description" "text", "p_metadata" "jsonb") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."log_challenge_creation"() TO "anon";
 GRANT ALL ON FUNCTION "public"."log_challenge_creation"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."log_challenge_creation"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."log_personal_challenge_security_event"() TO "anon";
+GRANT ALL ON FUNCTION "public"."log_personal_challenge_security_event"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."log_personal_challenge_security_event"() TO "service_role";
 
 
 
@@ -2829,9 +3651,21 @@ GRANT ALL ON FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event
 
 
 
+GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "anon";
+GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") TO "service_role";
 
 
 
@@ -2847,9 +3681,9 @@ GRANT ALL ON FUNCTION "public"."trigger_log_admin_action"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."update_challenge_progress"() TO "anon";
-GRANT ALL ON FUNCTION "public"."update_challenge_progress"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."update_challenge_progress"() TO "service_role";
+GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "service_role";
 
 
 
@@ -2874,6 +3708,12 @@ GRANT ALL ON FUNCTION "public"."update_user_level"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."validate_personal_challenge"() TO "anon";
+GRANT ALL ON FUNCTION "public"."validate_personal_challenge"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."validate_personal_challenge"() TO "service_role";
 
 
 
@@ -3030,6 +3870,24 @@ GRANT ALL ON TABLE "public"."badges" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."challenge_activity_log" TO "anon";
+GRANT ALL ON TABLE "public"."challenge_activity_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."challenge_activity_log" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."challenge_progress" TO "anon";
+GRANT ALL ON TABLE "public"."challenge_progress" TO "authenticated";
+GRANT ALL ON TABLE "public"."challenge_progress" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."challenges_public" TO "anon";
+GRANT ALL ON TABLE "public"."challenges_public" TO "authenticated";
+GRANT ALL ON TABLE "public"."challenges_public" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."content_items" TO "anon";
 GRANT ALL ON TABLE "public"."content_items" TO "authenticated";
 GRANT ALL ON TABLE "public"."content_items" TO "service_role";
@@ -3045,6 +3903,12 @@ GRANT ALL ON TABLE "public"."news_articles" TO "service_role";
 GRANT ALL ON TABLE "public"."password_resets" TO "anon";
 GRANT ALL ON TABLE "public"."password_resets" TO "authenticated";
 GRANT ALL ON TABLE "public"."password_resets" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."recent_challenge_activities" TO "anon";
+GRANT ALL ON TABLE "public"."recent_challenge_activities" TO "authenticated";
+GRANT ALL ON TABLE "public"."recent_challenge_activities" TO "service_role";
 
 
 
@@ -3150,6 +4014,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict J73svcw47yFMQ6rzMrkgiM629jT5ir6mV8oUk51Q4bIr7yfgrJ63RUfhvIbF9tC
+\unrestrict 1aOdyhaCtlddpbAerK8TTYFqikeUk3LflhlPLuwzbWPc4qwWG0heAKHEIxl36p3
 
 RESET ALL;

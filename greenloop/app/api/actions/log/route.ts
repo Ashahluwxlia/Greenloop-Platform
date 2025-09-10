@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { logActionSchema } from "@/lib/validations/api"
 import { authenticateUser, createErrorResponse, ApiException, checkRateLimit, sanitizeInput } from "@/lib/api-utils"
+import { createAdminClient } from "@/lib/supabase/admin"
 
 export async function POST(request: NextRequest) {
   try {
@@ -106,8 +107,10 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // Update points transaction
-      const { error: pointsError } = await supabase.from("point_transactions").insert({
+      const adminSupabase = createAdminClient()
+
+      // Update points transaction using admin client
+      const { error: pointsError } = await adminSupabase.from("point_transactions").insert({
         user_id: user.id,
         points: action.points_value,
         transaction_type: "earned",
@@ -120,16 +123,17 @@ export async function POST(request: NextRequest) {
         console.error("Points transaction error:", pointsError)
       }
 
-      // Update user CO2 total
-      const { error: co2UpdateError } = await supabase
+      // Update user CO2 total and points using admin client
+      const { error: userUpdateError } = await adminSupabase
         .from("users")
         .update({
           total_co2_saved: userProfile.total_co2_saved + action.co2_impact,
+          points: userProfile.points + action.points_value,
         })
         .eq("id", user.id)
 
-      if (co2UpdateError) {
-        console.error("CO2 update error:", co2UpdateError)
+      if (userUpdateError) {
+        console.error("User update error:", userUpdateError)
       }
     } catch (updateError) {
       console.error("Update operations failed:", updateError)
