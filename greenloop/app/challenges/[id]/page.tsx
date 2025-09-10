@@ -14,6 +14,7 @@ import { ChallengeActions } from "@/components/challenge-actions"
 interface ChallengeParticipant {
   id: string
   user_id: string
+  team_id: string
   completed: boolean
   current_progress: number
   users: {
@@ -21,6 +22,17 @@ interface ChallengeParticipant {
     first_name: string
     last_name: string
     avatar_url: string | null
+  }
+  teams: {
+    id: string
+    name: string
+    team_members: {
+      user_id: string
+      users: {
+        first_name: string
+        last_name: string
+      }
+    }[]
   }
 }
 
@@ -105,7 +117,6 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
 
   const { data: userProfile } = await supabase.from("users").select("*").eq("id", data.user.id).single()
 
-  // Get challenge details
   const { data: challenge } = await supabase
     .from("challenges")
     .select(`
@@ -113,9 +124,18 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
       challenge_participants (
         id,
         user_id,
+        team_id,
         completed,
         current_progress,
-        users (first_name, last_name, avatar_url)
+        users (first_name, last_name, avatar_url),
+        teams (
+          id,
+          name,
+          team_members (
+            user_id,
+            users (first_name, last_name)
+          )
+        )
       )
     `)
     .eq("id", params.id)
@@ -284,6 +304,24 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     }
   }
 
+  const isTeamChallenge = challenge.challenge_type === "team"
+  let teamStats = null
+
+  if (isTeamChallenge) {
+    const teamParticipant = challenge.challenge_participants?.find(
+      (participant: any) => participant.team_id && participant.teams,
+    )
+
+    if (teamParticipant?.teams) {
+      teamStats = {
+        teamName: teamParticipant.teams.name,
+        memberCount: teamParticipant.teams.team_members?.length || 0,
+        teamId: teamParticipant.team_id,
+        teamCount: 1, // Always 1 for single team challenges
+      }
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation user={userProfile} />
@@ -339,18 +377,35 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Participants</p>
-                  <p className="text-2xl font-bold">{totalParticipants}</p>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    {isTeamChallenge ? "Team" : "Participants"}
+                  </p>
+                  <p className="text-2xl font-bold">
+                    {isTeamChallenge ? teamStats?.memberCount || 0 : totalParticipants}
+                  </p>
                 </div>
                 <Users className="h-8 w-8 text-primary" />
               </div>
               <div className="mt-4">
-                <Progress
-                  value={challenge.max_participants ? (totalParticipants / challenge.max_participants) * 100 : 0}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {totalParticipants} of {challenge.max_participants || "unlimited"} max
-                </p>
+                {isTeamChallenge && teamStats ? (
+                  <div className="p-3 bg-primary/10 rounded-lg border-2 border-primary/20">
+                    <h4 className="font-semibold text-primary text-lg">{teamStats.teamName}</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {teamStats.memberCount} team member{teamStats.memberCount !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                ) : !isTeamChallenge ? (
+                  <>
+                    <Progress
+                      value={challenge.max_participants ? (totalParticipants / challenge.max_participants) * 100 : 0}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {totalParticipants} of {challenge.max_participants || "unlimited"} max
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No team assigned</p>
+                )}
               </div>
             </CardContent>
           </Card>

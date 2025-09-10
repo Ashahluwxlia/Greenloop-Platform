@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Target, UserMinus, Loader2, Eye, CheckCircle, Clock } from "lucide-react"
+import { Target, UserMinus, Loader2, Eye, CheckCircle, Clock, Users } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import Link from "next/link"
@@ -108,10 +108,22 @@ export function ChallengeCardActions({
         </Button>
 
         {challengeType === "team" ? (
-          <Button variant="secondary" disabled className="flex-1 gap-2">
-            <Target className="h-4 w-4" />
-            Team Challenge
-          </Button>
+          challengeEnded ? (
+            <Button variant="secondary" disabled className="flex-1 gap-2">
+              <Clock className="h-4 w-4" />
+              Ended
+            </Button>
+          ) : isCompleted ? (
+            <Button variant="default" disabled className="flex-1 gap-2 bg-green-600">
+              <CheckCircle className="h-4 w-4" />
+              Done
+            </Button>
+          ) : (
+            <Button variant="outline" disabled className="flex-1 gap-2 bg-transparent">
+              <Users className="h-4 w-4" />
+              Team Challenge
+            </Button>
+          )
         ) : challengeEnded ? (
           <Button variant="secondary" disabled className="flex-1 gap-2">
             <Clock className="h-4 w-4" />

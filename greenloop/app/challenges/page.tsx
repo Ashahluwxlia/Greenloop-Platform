@@ -21,7 +21,6 @@ export default async function ChallengesPage() {
   // Get user profile
   const { data: userProfile } = await supabase.from("users").select("*").eq("id", data.user.id).single()
 
-  // Get all active challenges
   const { data: allChallenges } = await supabase
     .from("challenges")
     .select(`
@@ -31,7 +30,17 @@ export default async function ChallengesPage() {
         user_id,
         team_id,
         current_progress,
-        completed
+        completed,
+        teams (
+          id,
+          name,
+          description,
+          team_members (
+            id,
+            user_id,
+            users (id, first_name, last_name, avatar_url)
+          )
+        )
       )
     `)
     .eq("is_active", true)
@@ -78,9 +87,28 @@ export default async function ChallengesPage() {
       const userProgress = progressMap.get(challenge.id)
       const challengeEnded = new Date(challenge.end_date) < new Date()
 
+      let teamCount = 0
+      let totalTeamMembers = 0
+      let teamName = ""
+
+      if (challenge.challenge_type === "team") {
+        const teamParticipant = challenge.challenge_participants?.find(
+          (participant: any) => participant.team_id && participant.teams,
+        )
+
+        if (teamParticipant?.teams) {
+          teamName = teamParticipant.teams.name
+          totalTeamMembers = teamParticipant.teams.team_members?.length || 0
+          teamCount = 1
+        }
+      }
+
       return {
         ...challenge,
         participants: participantCount,
+        teamCount,
+        totalTeamMembers,
+        teamName,
         maxParticipants: challenge.max_participants || 100,
         isParticipating: !!userParticipation,
         isCompleted: userProgress?.completed || false,
@@ -304,17 +332,32 @@ export default async function ChallengesPage() {
                                 <CardDescription className="text-pretty">{challenge.description}</CardDescription>
                               </CardHeader>
                               <CardContent className="space-y-4">
-                                {/* Challenge Stats */}
                                 <div className="grid grid-cols-2 gap-4">
                                   <div className="text-center p-3 bg-muted/50 rounded-lg">
-                                    <div className="text-lg font-bold text-primary">{challenge.participants}</div>
-                                    <p className="text-xs text-muted-foreground">Teams</p>
+                                    <div className="text-lg font-bold text-primary">
+                                      {challenge.totalTeamMembers || 0}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">Team Members</p>
                                   </div>
                                   <div className="text-center p-3 bg-muted/50 rounded-lg">
                                     <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
                                     <p className="text-xs text-muted-foreground">Points</p>
                                   </div>
                                 </div>
+
+                                {challenge.teamName ? (
+                                  <div className="p-3 bg-primary/10 rounded-lg border-2 border-primary/20">
+                                    <p className="font-semibold text-primary text-lg">{challenge.teamName}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {challenge.totalTeamMembers} team member
+                                      {challenge.totalTeamMembers !== 1 ? "s" : ""}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <div className="p-3 bg-muted/50 rounded-lg">
+                                    <p className="text-sm text-muted-foreground">No team assigned</p>
+                                  </div>
+                                )}
 
                                 {/* Duration */}
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">

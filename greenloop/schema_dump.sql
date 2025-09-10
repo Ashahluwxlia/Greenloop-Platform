@@ -1,5 +1,5 @@
 
-\restrict eWSdRLxfkMLleanlKai0a23YqaqFFZHA3lekmpdj9L7iXEmUqyOKoWYQMqJbgFb
+\restrict 1aOdyhaCtlddpbAerK8TTYFqikeUk3LflhlPLuwzbWPc4qwWG0heAKHEIxl36p3
 
 
 SET statement_timeout = 0;
@@ -103,6 +103,57 @@ $$;
 
 
 ALTER FUNCTION "public"."calculate_user_level"("user_points" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    challenge_type TEXT;
+    user_team_id UUID;
+    challenge_team_id UUID;
+    is_team_leader BOOLEAN := FALSE;
+BEGIN
+    -- Get challenge type and team
+    SELECT c.challenge_type, cp.team_id INTO challenge_type, challenge_team_id
+    FROM public.challenges c
+    LEFT JOIN public.challenge_participants cp ON c.id = cp.challenge_id
+    WHERE c.id = challenge_uuid
+    AND cp.user_id = participant_user_id
+    LIMIT 1;
+    
+    -- If not a team challenge, allow leaving
+    IF challenge_type != 'team' THEN
+        RETURN TRUE;
+    END IF;
+    
+    -- Get user's team
+    SELECT tm.team_id INTO user_team_id
+    FROM public.team_members tm
+    WHERE tm.user_id = auth.uid()
+    LIMIT 1;
+    
+    -- Check if user is team leader of the challenge team
+    IF challenge_team_id IS NOT NULL AND user_team_id = challenge_team_id THEN
+        SELECT EXISTS (
+            SELECT 1 FROM public.teams 
+            WHERE id = challenge_team_id 
+            AND team_leader_id = auth.uid()
+        ) INTO is_team_leader;
+        
+        -- Team leaders can remove team members
+        IF is_team_leader THEN
+            RETURN TRUE;
+        END IF;
+    END IF;
+    
+    -- Regular team members can only leave their own participation
+    RETURN auth.uid() = participant_user_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."check_and_award_badges"() RETURNS "trigger"
@@ -2896,13 +2947,9 @@ CREATE POLICY "challenge_participants_join_safe" ON "public"."challenge_particip
 
 
 
-CREATE POLICY "challenge_participants_leave_enhanced" ON "public"."challenge_participants" FOR DELETE USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
+CREATE POLICY "challenge_participants_leave_final" ON "public"."challenge_participants" FOR DELETE USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR (EXISTS ( SELECT 1
-   FROM (("public"."challenges" "c"
-     JOIN "public"."challenge_participants" "cp" ON (("c"."id" = "cp"."challenge_id")))
-     JOIN "public"."teams" "t" ON (("cp"."team_id" = "t"."id")))
-  WHERE (("cp"."challenge_id" = "challenge_participants"."challenge_id") AND ("c"."challenge_type" = 'team'::"text") AND ("t"."team_leader_id" = "auth"."uid"()) AND ("cp"."user_id" = "challenge_participants"."user_id"))))));
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR "public"."can_leave_team_challenge"("user_id", "challenge_id")));
 
 
 
@@ -3470,6 +3517,12 @@ GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO 
 
 
 
+GRANT ALL ON FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."can_leave_team_challenge"("participant_user_id" "uuid", "challenge_uuid" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "anon";
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "service_role";
@@ -3961,6 +4014,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict eWSdRLxfkMLleanlKai0a23YqaqFFZHA3lekmpdj9L7iXEmUqyOKoWYQMqJbgFb
+\unrestrict 1aOdyhaCtlddpbAerK8TTYFqikeUk3LflhlPLuwzbWPc4qwWG0heAKHEIxl36p3
 
 RESET ALL;

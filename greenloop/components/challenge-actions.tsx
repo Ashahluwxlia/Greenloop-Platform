@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Target, UserMinus, Loader2, CheckCircle, Clock } from "lucide-react"
+import { Target, UserMinus, Loader2, CheckCircle, Clock, Users } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
@@ -79,6 +79,18 @@ export function ChallengeActions({
     }
   }
 
+  if (challengeType === "team") {
+    return (
+      <div className="flex flex-col gap-2">
+        <Button size="lg" disabled variant="secondary" className="gap-2">
+          <Users className="h-4 w-4" />
+          Team Challenge
+        </Button>
+        <p className="text-sm text-muted-foreground text-center">Teams managed by admins</p>
+      </div>
+    )
+  }
+
   if (challengeEnded) {
     return (
       <div className="flex flex-col gap-2">
@@ -138,9 +150,7 @@ export function ChallengeActions({
         {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Target className="h-4 w-4" />}
         Join Challenge
       </Button>
-      <p className="text-sm text-muted-foreground text-center">
-        {challengeType === "team" ? "Join with your team" : "Start your sustainability journey"}
-      </p>
+      <p className="text-sm text-muted-foreground text-center">Start your sustainability journey</p>
     </div>
   )
 }

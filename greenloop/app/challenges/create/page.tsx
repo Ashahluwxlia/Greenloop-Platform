@@ -62,15 +62,39 @@ export default function CreateChallengePage() {
         const { data: userProfile } = await supabase.from("users").select("*").eq("id", userData.user.id).single()
         setUser(userProfile)
 
-        // Get user's teams (for team challenge creation)
-        const { data: teams } = await supabase
-          .from("team_members")
+        const teamsQuery = supabase
+          .from("teams")
           .select(`
-            teams (id, name)
+            id, 
+            name,
+            team_members (
+              user_id
+            )
           `)
-          .eq("user_id", userData.user.id)
+          .eq("is_active", true)
 
-        setUserTeams(teams?.map((tm) => tm.teams) || [])
+        // If user is admin, fetch all teams; otherwise, fetch only user's teams
+        if (userProfile?.is_admin) {
+          // Admin can see all teams
+          const { data: allTeams } = await teamsQuery
+          setUserTeams(allTeams || [])
+        } else {
+          // Regular users see only their teams
+          const { data: userTeamMemberships } = await supabase
+            .from("team_members")
+            .select(`
+              teams (
+                id, 
+                name,
+                team_members (
+                  user_id
+                )
+              )
+            `)
+            .eq("user_id", userData.user.id)
+
+          setUserTeams(userTeamMemberships?.map((tm) => tm.teams).filter(Boolean) || [])
+        }
       } catch (err) {
         console.error("Failed to load data:", err)
       } finally {
