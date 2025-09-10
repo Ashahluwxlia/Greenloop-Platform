@@ -34,7 +34,6 @@ const baseChallengeSchema = z.object({
     },
   ),
 
-  startDate: z.string(),
   endDate: z.string(),
 
   targetMetric: z.enum(["points", "actions", "co2_saved"], {
@@ -61,17 +60,6 @@ const baseChallengeSchema = z.object({
 })
 
 export const challengeFormSchema = baseChallengeSchema
-  .refine(
-    (data) => {
-      const startDate = new Date(data.startDate)
-      const endDate = new Date(data.endDate)
-      return endDate > startDate
-    },
-    {
-      message: "End date must be after start date",
-      path: ["endDate"],
-    },
-  )
   .refine(
     (data) => {
       const endDate = new Date(data.endDate)
@@ -125,6 +113,7 @@ export type ChallengeFormData = z.infer<typeof challengeFormSchema>
 
 const serverBaseSchema = baseChallengeSchema.merge(
   z.object({
+    startDate: z.string(),
     createdBy: z.string().uuid(),
   }),
 )
@@ -174,17 +163,6 @@ const adminBaseSchema = baseChallengeSchema.merge(
 )
 
 export const adminChallengeSchema = adminBaseSchema
-  .refine(
-    (data) => {
-      const startDate = new Date(data.startDate)
-      const endDate = new Date(data.endDate)
-      return endDate > startDate
-    },
-    {
-      message: "End date must be after start date",
-      path: ["endDate"],
-    },
-  )
   .refine(
     (data) => {
       const endDate = new Date(data.endDate)

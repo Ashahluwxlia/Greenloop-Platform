@@ -1,5 +1,5 @@
 
-\restrict QfH1drDJkf3y6Rfb8pwOQSwWjMtoxiiiNNAlz8m198K50SdOPpgTFExJsSmEUbm
+\restrict eWSdRLxfkMLleanlKai0a23YqaqFFZHA3lekmpdj9L7iXEmUqyOKoWYQMqJbgFb
 
 
 SET statement_timeout = 0;
@@ -267,6 +267,37 @@ $$;
 
 
 ALTER FUNCTION "public"."cleanup_expired_sessions"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  -- Delete any existing participants for this challenge
+  DELETE FROM challenge_participants 
+  WHERE challenge_id = p_challenge_id;
+  
+  -- Insert a single team participant record (not individual user records)
+  INSERT INTO challenge_participants (
+    challenge_id,
+    user_id,
+    team_id,
+    current_progress,
+    completed,
+    joined_at
+  ) VALUES (
+    p_challenge_id,
+    NULL,
+    p_team_id,
+    0,
+    false,
+    NOW()
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."create_user_preferences"() RETURNS "trigger"
@@ -748,6 +779,37 @@ $$;
 
 
 ALTER FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  max_participants_count INTEGER;
+  current_participants_count INTEGER;
+BEGIN
+  -- Get max participants from challenges table
+  SELECT max_participants INTO max_participants_count
+  FROM challenges 
+  WHERE id = challenge_id_param;
+  
+  -- If no limit set, return a high number
+  IF max_participants_count IS NULL THEN
+    RETURN 999999;
+  END IF;
+  
+  -- Count current participants
+  SELECT COUNT(*) INTO current_participants_count
+  FROM challenge_participants 
+  WHERE challenge_id = challenge_id_param;
+  
+  -- Return remaining spots
+  RETURN max_participants_count - current_participants_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."simple_update_user_co2_savings"() RETURNS "trigger"
@@ -1737,23 +1799,16 @@ CREATE OR REPLACE VIEW "public"."challenges_public" AS
     "category",
     "start_date",
     "end_date",
+    "reward_points",
     "target_metric",
     "target_value",
-    "reward_points",
     "reward_description",
     "max_participants",
     "is_active",
-    "created_at",
-        CASE
-            WHEN (("challenge_type" = 'individual'::"text") AND ("created_by" <> "auth"."uid"()) AND (NOT (EXISTS ( SELECT 1
-               FROM "public"."users"
-              WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))))) THEN NULL::"uuid"
-            ELSE "created_by"
-        END AS "created_by"
+    "created_by",
+    "created_at"
    FROM "public"."challenges"
-  WHERE (("challenge_type" = ANY (ARRAY['team'::"text", 'company'::"text"])) OR (("challenge_type" = 'individual'::"text") AND ("created_by" = "auth"."uid"())) OR (EXISTS ( SELECT 1
-           FROM "public"."users"
-          WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+  WHERE ("is_active" = true);
 
 
 ALTER VIEW "public"."challenges_public" OWNER TO "postgres";
@@ -3452,6 +3507,12 @@ GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "anon";
 GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "service_role";
@@ -3546,6 +3607,12 @@ GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "servic
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") TO "service_role";
 
 
 
@@ -3894,6 +3961,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict QfH1drDJkf3y6Rfb8pwOQSwWjMtoxiiiNNAlz8m198K50SdOPpgTFExJsSmEUbm
+\unrestrict eWSdRLxfkMLleanlKai0a23YqaqFFZHA3lekmpdj9L7iXEmUqyOKoWYQMqJbgFb
 
 RESET ALL;

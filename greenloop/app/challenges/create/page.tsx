@@ -36,7 +36,7 @@ export default function CreateChallengePage() {
       endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       targetMetric: "actions",
       targetValue: 10,
-      rewardPoints: 1,
+      rewardPoints: 0,
       rewardDescription: "",
       maxParticipants: 1,
       teamId: undefined,

@@ -69,7 +69,7 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
       endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       targetMetric: "actions",
       targetValue: 10,
-      rewardPoints: 100,
+      rewardPoints: 0,
       rewardDescription: "",
       maxParticipants: undefined,
       isActive: true,
@@ -157,6 +157,7 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
         description: data.description,
         category: data.category,
         challenge_type: data.challengeType,
+        ...(challenge?.id ? {} : { start_date: new Date().toISOString() }),
         end_date: data.endDate,
         target_metric: data.targetMetric,
         target_value: data.targetValue,
@@ -164,13 +165,28 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
         reward_description: data.rewardDescription,
         max_participants: data.challengeType === "individual" ? 1 : data.maxParticipants,
         is_active: data.isActive,
-        ...(data.challengeType === "team" && data.teamId && { team_id: data.teamId }),
       }
 
       if (challenge?.id) {
         const { error } = await supabase.from("challenges").update(challengeData).eq("id", challenge.id)
 
         if (error) throw error
+
+        if (data.challengeType === "team" && data.teamId) {
+          await supabase.from("challenge_participants").delete().eq("challenge_id", challenge.id)
+
+          const { data: teamMembers } = await supabase.from("team_members").select("user_id").eq("team_id", data.teamId)
+
+          if (teamMembers && teamMembers.length > 0) {
+            const participants = teamMembers.map((member) => ({
+              challenge_id: challenge.id,
+              user_id: null,
+              team_id: data.teamId,
+            }))
+
+            await supabase.from("challenge_participants").insert(participants)
+          }
+        }
 
         await logAdminActivity("challenge_updated", challenge.id, {
           title: data.title,
@@ -196,6 +212,20 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
           .single()
 
         if (error) throw error
+
+        if (newChallenge && data.challengeType === "team" && data.teamId) {
+          const { data: teamMembers } = await supabase.from("team_members").select("user_id").eq("team_id", data.teamId)
+
+          if (teamMembers && teamMembers.length > 0) {
+            const participants = teamMembers.map((member) => ({
+              challenge_id: newChallenge.id,
+              user_id: null,
+              team_id: data.teamId,
+            }))
+
+            await supabase.from("challenge_participants").insert(participants)
+          }
+        }
 
         if (newChallenge) {
           await logAdminActivity("challenge_created", newChallenge.id, {
@@ -332,7 +362,19 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      onValueChange={(value) => {
+                        field.onChange(value)
+                        if (value === "individual") {
+                          form.setValue("rewardPoints", 0)
+                          form.setValue("maxParticipants", 1)
+                        } else {
+                          form.setValue("rewardPoints", 100)
+                          form.setValue("maxParticipants", undefined)
+                        }
+                      }}
+                      value={field.value}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select type" />

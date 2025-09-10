@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
 
     const validationResult = challengeServerSchema.safeParse({
       ...body,
+      startDate: new Date().toISOString(),
       createdBy: user.id,
     })
 
@@ -90,8 +91,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only admins can create company-wide challenges" }, { status: 403 })
     }
 
-    if (challengeType === "team" && teamId) {
-      // Check if user is member of the specified team
+    if (challengeType === "team" && teamId && !userProfile?.is_admin) {
+      // Check if user is member of the specified team (only for non-admins)
       const { data: teamMember } = await supabase
         .from("team_members")
         .select("id")
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
         reward_description: rewardDescription,
         max_participants: challengeType === "individual" ? 1 : maxParticipants,
         created_by: user.id,
+        start_date: validationResult.data.startDate, // Include startDate in the insert
       })
       .select()
       .single()
@@ -133,17 +135,14 @@ export async function POST(request: NextRequest) {
     // Removed manual insertion for individual challenges as it's now handled by auto_join_personal_challenge trigger
 
     if (challengeType === "team" && teamId && challenge) {
-      // Get all team members and add them as participants
-      const { data: teamMembers } = await supabase.from("team_members").select("user_id").eq("team_id", teamId)
+      const { error: teamParticipantError } = await supabase.rpc("create_team_challenge_participants", {
+        p_challenge_id: challenge.id,
+        p_team_id: teamId,
+      })
 
-      if (teamMembers && teamMembers.length > 0) {
-        const participants = teamMembers.map((member) => ({
-          challenge_id: challenge.id,
-          user_id: member.user_id,
-          team_id: teamId,
-        }))
-
-        await supabase.from("challenge_participants").insert(participants)
+      if (teamParticipantError) {
+        console.error("Error creating team participants:", teamParticipantError)
+        return NextResponse.json({ error: "Failed to add team participants" }, { status: 500 })
       }
     }
 

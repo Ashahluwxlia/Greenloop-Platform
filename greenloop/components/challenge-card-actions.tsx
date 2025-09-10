@@ -107,7 +107,12 @@ export function ChallengeCardActions({
           </Link>
         </Button>
 
-        {challengeEnded ? (
+        {challengeType === "team" ? (
+          <Button variant="secondary" disabled className="flex-1 gap-2">
+            <Target className="h-4 w-4" />
+            Team Challenge
+          </Button>
+        ) : challengeEnded ? (
           <Button variant="secondary" disabled className="flex-1 gap-2">
             <Clock className="h-4 w-4" />
             Ended

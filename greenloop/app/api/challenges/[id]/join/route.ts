@@ -27,6 +27,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Challenge not found or inactive" }, { status: 404 })
     }
 
+    if (challenge.challenge_type === "team") {
+      return NextResponse.json(
+        { error: "Team challenges cannot be joined individually. Contact your team leader." },
+        { status: 400 },
+      )
+    }
+
     // Check if challenge has ended
     if (new Date(challenge.end_date) < new Date()) {
       return NextResponse.json({ error: "Challenge has ended" }, { status: 400 })
@@ -44,8 +51,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Already participating in this challenge" }, { status: 400 })
     }
 
-    if (challenge.max_participants) {
-      const { data: canJoin, error: checkError } = await supabase.rpc("check_max_participants", {
+    if (challenge.max_participants && challenge.challenge_type !== "team") {
+      const { data: canJoin, error: checkError } = await supabase.rpc("safe_check_max_participants", {
         challenge_uuid: challengeId,
       })
 
@@ -65,6 +72,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .insert({
         challenge_id: challengeId,
         user_id: user.id,
+        team_id: null,
         current_progress: 0,
         completed: false,
       })

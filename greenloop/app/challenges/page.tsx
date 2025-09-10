@@ -127,69 +127,220 @@ export default async function ChallengesPage() {
 
             <TabsContent value="active" className="space-y-6">
               {challengesWithStats.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {challengesWithStats.map((challenge) => (
-                    <Card key={challenge.id} className="hover:shadow-md transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between mb-2">
-                          <Badge variant="secondary" className="flex items-center gap-1">
-                            <Trophy className="h-3 w-3" />
-                            {challenge.challenge_type}
-                          </Badge>
-                          <Badge variant="outline">{challenge.category}</Badge>
-                        </div>
-                        <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
-                        <CardDescription className="text-pretty">{challenge.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        {/* Challenge Stats */}
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="text-center p-3 bg-muted/50 rounded-lg">
-                            <div className="text-lg font-bold text-primary">{challenge.participants}</div>
-                            <p className="text-xs text-muted-foreground">Participants</p>
-                          </div>
-                          <div className="text-center p-3 bg-muted/50 rounded-lg">
-                            <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
-                            <p className="text-xs text-muted-foreground">Points</p>
-                          </div>
-                        </div>
+                <div className="space-y-8">
+                  {/* Personal Challenges */}
+                  {challengesWithStats.filter((c) => c.challenge_type === "individual").length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold">Personal Challenges</h2>
+                        <Badge variant="outline">Individual</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {challengesWithStats
+                          .filter((c) => c.challenge_type === "individual")
+                          .map((challenge) => (
+                            <Card key={challenge.id} className="hover:shadow-md transition-shadow">
+                              <CardHeader className="pb-3">
+                                <div className="flex items-start justify-between mb-2">
+                                  <Badge variant="secondary" className="flex items-center gap-1">
+                                    <Trophy className="h-3 w-3" />
+                                    Personal
+                                  </Badge>
+                                  <Badge variant="outline">{challenge.category}</Badge>
+                                </div>
+                                <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                <CardDescription className="text-pretty">{challenge.description}</CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                {/* Challenge Stats */}
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-primary">{challenge.participants}</div>
+                                    <p className="text-xs text-muted-foreground">Participants</p>
+                                  </div>
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
+                                    <p className="text-xs text-muted-foreground">Points</p>
+                                  </div>
+                                </div>
 
-                        {/* Progress Bar */}
-                        <div>
-                          <div className="flex justify-between text-sm mb-1">
-                            <span className="text-muted-foreground">Participation</span>
-                            <span className="text-muted-foreground">
-                              {challenge.participants}/{challenge.maxParticipants}
-                            </span>
-                          </div>
-                          <Progress
-                            value={(challenge.participants / challenge.maxParticipants) * 100}
-                            className="h-2"
-                          />
-                        </div>
+                                {/* Progress Bar */}
+                                <div>
+                                  <div className="flex justify-between text-sm mb-1">
+                                    <span className="text-muted-foreground">Participation</span>
+                                    <span className="text-muted-foreground">
+                                      {challenge.participants}/{challenge.maxParticipants}
+                                    </span>
+                                  </div>
+                                  <Progress
+                                    value={(challenge.participants / challenge.maxParticipants) * 100}
+                                    className="h-2"
+                                  />
+                                </div>
 
-                        {/* Duration */}
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Calendar className="h-4 w-4" />
-                          <span>
-                            {new Date(challenge.start_date).toLocaleDateString()} -{" "}
-                            {new Date(challenge.end_date).toLocaleDateString()}
-                          </span>
-                        </div>
+                                {/* Duration */}
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Calendar className="h-4 w-4" />
+                                  <span>
+                                    {new Date(challenge.start_date).toLocaleDateString()} -{" "}
+                                    {new Date(challenge.end_date).toLocaleDateString()}
+                                  </span>
+                                </div>
 
-                        <ChallengeCardActions
-                          challengeId={challenge.id}
-                          isParticipating={challenge.isParticipating}
-                          isCompleted={challenge.isCompleted}
-                          challengeEnded={challenge.challengeEnded}
-                          challengeType={challenge.challenge_type}
-                          userProgress={challenge.userProgress}
-                          targetValue={challenge.target_value}
-                          progressPercentage={challenge.progressPercentage}
-                        />
-                      </CardContent>
-                    </Card>
-                  ))}
+                                <ChallengeCardActions
+                                  challengeId={challenge.id}
+                                  isParticipating={challenge.isParticipating}
+                                  isCompleted={challenge.isCompleted}
+                                  challengeEnded={challenge.challengeEnded}
+                                  challengeType={challenge.challenge_type}
+                                  userProgress={challenge.userProgress}
+                                  targetValue={challenge.target_value}
+                                  progressPercentage={challenge.progressPercentage}
+                                />
+                              </CardContent>
+                            </Card>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Company-wide Challenges */}
+                  {challengesWithStats.filter((c) => c.challenge_type === "company").length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold">Company-wide Challenges</h2>
+                        <Badge variant="outline">Company</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {challengesWithStats
+                          .filter((c) => c.challenge_type === "company")
+                          .map((challenge) => (
+                            <Card key={challenge.id} className="hover:shadow-md transition-shadow">
+                              <CardHeader className="pb-3">
+                                <div className="flex items-start justify-between mb-2">
+                                  <Badge variant="secondary" className="flex items-center gap-1">
+                                    <Trophy className="h-3 w-3" />
+                                    Company-wide
+                                  </Badge>
+                                  <Badge variant="outline">{challenge.category}</Badge>
+                                </div>
+                                <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                <CardDescription className="text-pretty">{challenge.description}</CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                {/* Challenge Stats */}
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-primary">{challenge.participants}</div>
+                                    <p className="text-xs text-muted-foreground">Participants</p>
+                                  </div>
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
+                                    <p className="text-xs text-muted-foreground">Points</p>
+                                  </div>
+                                </div>
+
+                                {/* Progress Bar */}
+                                <div>
+                                  <div className="flex justify-between text-sm mb-1">
+                                    <span className="text-muted-foreground">Participation</span>
+                                    <span className="text-muted-foreground">
+                                      {challenge.participants}/{challenge.maxParticipants}
+                                    </span>
+                                  </div>
+                                  <Progress
+                                    value={(challenge.participants / challenge.maxParticipants) * 100}
+                                    className="h-2"
+                                  />
+                                </div>
+
+                                {/* Duration */}
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Calendar className="h-4 w-4" />
+                                  <span>
+                                    {new Date(challenge.start_date).toLocaleDateString()} -{" "}
+                                    {new Date(challenge.end_date).toLocaleDateString()}
+                                  </span>
+                                </div>
+
+                                <ChallengeCardActions
+                                  challengeId={challenge.id}
+                                  isParticipating={challenge.isParticipating}
+                                  isCompleted={challenge.isCompleted}
+                                  challengeEnded={challenge.challengeEnded}
+                                  challengeType={challenge.challenge_type}
+                                  userProgress={challenge.userProgress}
+                                  targetValue={challenge.target_value}
+                                  progressPercentage={challenge.progressPercentage}
+                                />
+                              </CardContent>
+                            </Card>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Team Challenges */}
+                  {challengesWithStats.filter((c) => c.challenge_type === "team").length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold">Team Challenges</h2>
+                        <Badge variant="outline">Team</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {challengesWithStats
+                          .filter((c) => c.challenge_type === "team")
+                          .map((challenge) => (
+                            <Card key={challenge.id} className="hover:shadow-md transition-shadow">
+                              <CardHeader className="pb-3">
+                                <div className="flex items-start justify-between mb-2">
+                                  <Badge variant="secondary" className="flex items-center gap-1">
+                                    <Trophy className="h-3 w-3" />
+                                    Team
+                                  </Badge>
+                                  <Badge variant="outline">{challenge.category}</Badge>
+                                </div>
+                                <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                <CardDescription className="text-pretty">{challenge.description}</CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                {/* Challenge Stats */}
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-primary">{challenge.participants}</div>
+                                    <p className="text-xs text-muted-foreground">Teams</p>
+                                  </div>
+                                  <div className="text-center p-3 bg-muted/50 rounded-lg">
+                                    <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
+                                    <p className="text-xs text-muted-foreground">Points</p>
+                                  </div>
+                                </div>
+
+                                {/* Duration */}
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Calendar className="h-4 w-4" />
+                                  <span>
+                                    {new Date(challenge.start_date).toLocaleDateString()} -{" "}
+                                    {new Date(challenge.end_date).toLocaleDateString()}
+                                  </span>
+                                </div>
+
+                                <ChallengeCardActions
+                                  challengeId={challenge.id}
+                                  isParticipating={challenge.isParticipating}
+                                  isCompleted={challenge.isCompleted}
+                                  challengeEnded={challenge.challengeEnded}
+                                  challengeType={challenge.challenge_type}
+                                  userProgress={challenge.userProgress}
+                                  targetValue={challenge.target_value}
+                                  progressPercentage={challenge.progressPercentage}
+                                />
+                              </CardContent>
+                            </Card>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <Card>
