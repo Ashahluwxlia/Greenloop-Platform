@@ -1,5 +1,5 @@
 
-\restrict J73svcw47yFMQ6rzMrkgiM629jT5ir6mV8oUk51Q4bIr7yfgrJ63RUfhvIbF9tC
+\restrict HnQkAaBHYWArAYFDVZOoeXzzwgqcxm318UiQZaiUXKcRjlKKg6XEWbiNZde74TE
 
 
 SET statement_timeout = 0;
@@ -640,6 +640,94 @@ $$;
 
 
 ALTER FUNCTION "public"."update_challenge_progress"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_challenge_progress_on_action"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+    challenge_record RECORD;
+    participant_record RECORD;
+    new_progress NUMERIC;
+BEGIN
+    -- Get all active challenges the user is participating in
+    FOR challenge_record IN 
+        SELECT c.*, cp.id as participant_id, cp.current_progress
+        FROM challenges c
+        JOIN challenge_participants cp ON c.id = cp.challenge_id
+        WHERE cp.user_id = NEW.user_id 
+        AND c.is_active = true
+        AND c.start_date <= CURRENT_DATE
+        AND c.end_date >= CURRENT_DATE
+    LOOP
+        -- Check if the logged action matches the challenge category
+        IF challenge_record.category = 'general' OR 
+           (challenge_record.category = 'water' AND NEW.action_id IN (
+               SELECT id FROM sustainability_actions WHERE category = 'water'
+           )) OR
+           (challenge_record.category = 'energy' AND NEW.action_id IN (
+               SELECT id FROM sustainability_actions WHERE category = 'energy'
+           )) OR
+           (challenge_record.category = 'waste' AND NEW.action_id IN (
+               SELECT id FROM sustainability_actions WHERE category = 'waste'
+           )) OR
+           (challenge_record.category = 'transport' AND NEW.action_id IN (
+               SELECT id FROM sustainability_actions WHERE category = 'transport'
+           ))
+        THEN
+            -- Calculate new progress based on target metric
+            IF challenge_record.target_metric = 'actions' THEN
+                -- Count total actions for this challenge
+                SELECT COUNT(*) INTO new_progress
+                FROM user_actions ua
+                JOIN sustainability_actions sa ON ua.action_id = sa.id
+                WHERE ua.user_id = NEW.user_id
+                AND ua.created_at >= challenge_record.start_date
+                AND ua.created_at <= challenge_record.end_date + INTERVAL '1 day'
+                AND (challenge_record.category = 'general' OR sa.category = challenge_record.category);
+                
+                new_progress := LEAST((new_progress / challenge_record.target_value) * 100, 100);
+                
+            ELSIF challenge_record.target_metric = 'points' THEN
+                -- Sum total points for this challenge
+                SELECT COALESCE(SUM(sa.points_value), 0) INTO new_progress
+                FROM user_actions ua
+                JOIN sustainability_actions sa ON ua.action_id = sa.id
+                WHERE ua.user_id = NEW.user_id
+                AND ua.created_at >= challenge_record.start_date
+                AND ua.created_at <= challenge_record.end_date + INTERVAL '1 day'
+                AND (challenge_record.category = 'general' OR sa.category = challenge_record.category);
+                
+                new_progress := LEAST((new_progress / challenge_record.target_value) * 100, 100);
+                
+            ELSIF challenge_record.target_metric = 'co2_saved' THEN
+                -- Sum total CO2 saved for this challenge
+                SELECT COALESCE(SUM(sa.co2_impact), 0) INTO new_progress
+                FROM user_actions ua
+                JOIN sustainability_actions sa ON ua.action_id = sa.id
+                WHERE ua.user_id = NEW.user_id
+                AND ua.created_at >= challenge_record.start_date
+                AND ua.created_at <= challenge_record.end_date + INTERVAL '1 day'
+                AND (challenge_record.category = 'general' OR sa.category = challenge_record.category);
+                
+                new_progress := LEAST((new_progress / challenge_record.target_value) * 100, 100);
+            END IF;
+            
+            -- Update participant progress
+            UPDATE challenge_participants 
+            SET current_progress = new_progress,
+                completed = (new_progress >= 100)
+            WHERE id = challenge_record.participant_id;
+            
+        END IF;
+    END LOOP;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_challenge_progress_on_action"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_team_stats"() RETURNS "trigger"
@@ -1988,6 +2076,10 @@ CREATE OR REPLACE TRIGGER "trigger_log_challenge_creation" AFTER INSERT ON "publ
 
 
 
+CREATE OR REPLACE TRIGGER "trigger_update_challenge_progress" AFTER INSERT ON "public"."user_actions" FOR EACH ROW EXECUTE FUNCTION "public"."update_challenge_progress_on_action"();
+
+
+
 CREATE OR REPLACE TRIGGER "trigger_update_user_level" BEFORE UPDATE OF "points" ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."update_user_level"();
 
 
@@ -2251,6 +2343,12 @@ CREATE POLICY "badges_select_all" ON "public"."badges" FOR SELECT USING (("auth"
 
 
 ALTER TABLE "public"."challenge_participants" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "challenge_participants_delete_own" ON "public"."challenge_participants" FOR DELETE USING ((("auth"."uid"() = "user_id") OR ("auth"."uid"() IN ( SELECT "team_members"."user_id"
+   FROM "public"."team_members"
+  WHERE ("team_members"."team_id" = "challenge_participants"."team_id")))));
+
 
 
 CREATE POLICY "challenge_participants_insert_own" ON "public"."challenge_participants" FOR INSERT WITH CHECK ((("auth"."uid"() = "user_id") OR ("auth"."uid"() IN ( SELECT "team_members"."user_id"
@@ -2853,6 +2951,12 @@ GRANT ALL ON FUNCTION "public"."update_challenge_progress"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."update_team_stats"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_team_stats"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_team_stats"() TO "service_role";
@@ -3150,6 +3254,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict J73svcw47yFMQ6rzMrkgiM629jT5ir6mV8oUk51Q4bIr7yfgrJ63RUfhvIbF9tC
+\unrestrict HnQkAaBHYWArAYFDVZOoeXzzwgqcxm318UiQZaiUXKcRjlKKg6XEWbiNZde74TE
 
 RESET ALL;

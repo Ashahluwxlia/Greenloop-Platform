@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Trophy, Plus, Calendar, Target, Clock, Award } from "lucide-react"
+import { Trophy, Plus, Calendar, Clock, Award } from "lucide-react"
 import Link from "next/link"
+import { ChallengeCardActions } from "@/components/challenge-card-actions"
 
 export default async function ChallengesPage() {
   const supabase = await createClient()
@@ -56,13 +57,26 @@ export default async function ChallengesPage() {
     .eq("user_id", data.user.id)
     .single()
 
+  const { data: allUserParticipations } = await supabase
+    .from("challenge_participants")
+    .select("challenge_id, completed")
+    .eq("user_id", data.user.id)
+
+  const participationMap = new Map(allUserParticipations?.map((p) => [p.challenge_id, p]) || [])
+
   const challengesWithStats =
     allChallenges?.map((challenge) => {
       const participantCount = challenge.challenge_participants?.length || 0
+      const userParticipation = participationMap.get(challenge.id)
+      const challengeEnded = new Date(challenge.end_date) < new Date()
+
       return {
         ...challenge,
         participants: participantCount,
         maxParticipants: challenge.max_participants || 100,
+        isParticipating: !!userParticipation,
+        isCompleted: userParticipation?.completed || false,
+        challengeEnded,
       }
     }) || []
 
@@ -154,12 +168,12 @@ export default async function ChallengesPage() {
                         </div>
 
                         {/* Action Button */}
-                        <Button className="w-full" asChild>
-                          <Link href={`/challenges/${challenge.id}`}>
-                            <Target className="h-4 w-4 mr-2" />
-                            View Challenge
-                          </Link>
-                        </Button>
+                        <ChallengeCardActions
+                          challengeId={challenge.id}
+                          isParticipating={challenge.isParticipating}
+                          isCompleted={challenge.isCompleted}
+                          challengeEnded={challenge.challengeEnded}
+                        />
                       </CardContent>
                     </Card>
                   ))}

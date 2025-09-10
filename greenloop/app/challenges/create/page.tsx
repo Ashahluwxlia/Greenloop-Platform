@@ -37,9 +37,9 @@ export default function CreateChallengePage() {
       endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       targetMetric: "actions",
       targetValue: 10,
-      rewardPoints: 100,
+      rewardPoints: 0,
       rewardDescription: "",
-      maxParticipants: undefined,
+      maxParticipants: 1,
       teamId: undefined,
     },
   })
@@ -257,7 +257,19 @@ export default function CreateChallengePage() {
                           <FormLabel>
                             Challenge Type <span className="text-destructive">*</span>
                           </FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select
+                            onValueChange={(value) => {
+                              field.onChange(value)
+                              if (value === "individual") {
+                                form.setValue("maxParticipants", 1)
+                                form.setValue("rewardPoints", 0)
+                              } else {
+                                form.setValue("maxParticipants", undefined)
+                                form.setValue("rewardPoints", 100)
+                              }
+                            }}
+                            defaultValue={field.value?.toString()}
+                          >
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select challenge type" />
@@ -286,7 +298,7 @@ export default function CreateChallengePage() {
                           <FormLabel>
                             Select Team <span className="text-destructive">*</span>
                           </FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} defaultValue={field.value?.toString()}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select a team" />
@@ -376,12 +388,18 @@ export default function CreateChallengePage() {
                           <FormControl>
                             <Input
                               type="number"
-                              min="1"
+                              min="0"
                               placeholder="100"
+                              disabled={challengeType === "individual"}
                               {...field}
                               onChange={(e) => field.onChange(Number(e.target.value))}
                             />
                           </FormControl>
+                          {challengeType === "individual" && (
+                            <FormDescription className="text-muted-foreground">
+                              Personal challenges cannot have reward points to prevent abuse
+                            </FormDescription>
+                          )}
                           <FormMessage />
                         </FormItem>
                       )}
@@ -397,7 +415,7 @@ export default function CreateChallengePage() {
                           <FormLabel>
                             Category <span className="text-destructive">*</span>
                           </FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} defaultValue={field.value?.toString()}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select category" />
@@ -424,7 +442,7 @@ export default function CreateChallengePage() {
                           <FormLabel>
                             Target Metric <span className="text-destructive">*</span>
                           </FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} defaultValue={field.value?.toString()}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select metric" />
@@ -452,13 +470,13 @@ export default function CreateChallengePage() {
                           <FormControl>
                             <Input
                               type="number"
-                              step="0.1"
-                              min="0.1"
+                              min="1"
                               placeholder="e.g., 10"
                               {...field}
                               onChange={(e) => field.onChange(Number(e.target.value))}
                             />
                           </FormControl>
+                          <FormDescription>Enter a whole number (no decimals allowed)</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -492,10 +510,16 @@ export default function CreateChallengePage() {
                               type="number"
                               min="1"
                               placeholder="Leave empty for unlimited"
+                              disabled={challengeType === "individual"}
                               {...field}
                               onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : undefined)}
                             />
                           </FormControl>
+                          {challengeType === "individual" && (
+                            <FormDescription className="text-muted-foreground">
+                              Personal challenges are limited to 1 participant (yourself)
+                            </FormDescription>
+                          )}
                           <FormMessage />
                         </FormItem>
                       )}

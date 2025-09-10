@@ -117,11 +117,11 @@ export async function POST(request: NextRequest) {
         category,
         start_date: startDate,
         end_date: endDate,
-        reward_points: rewardPoints, // Fixed column name
-        target_metric: targetMetric, // Added target_metric
+        reward_points: challengeType === "individual" ? 0 : rewardPoints,
+        target_metric: targetMetric,
         target_value: targetValue,
-        reward_description: rewardDescription, // Added reward_description
-        max_participants: maxParticipants,
+        reward_description: rewardDescription,
+        max_participants: challengeType === "individual" ? 1 : maxParticipants,
         created_by: user.id,
       })
       .select()
@@ -130,6 +130,14 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error("Database error:", error)
       return NextResponse.json({ error: "Failed to create challenge in database" }, { status: 500 })
+    }
+
+    if (challengeType === "individual" && challenge) {
+      await supabase.from("challenge_participants").insert({
+        challenge_id: challenge.id,
+        user_id: user.id,
+        team_id: null,
+      })
     }
 
     if (challengeType === "team" && teamId && challenge) {

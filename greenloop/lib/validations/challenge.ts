@@ -34,7 +34,11 @@ const baseChallengeSchema = z.object({
     required_error: "Target metric is required",
   }),
 
-  targetValue: z.number().min(0.1, "Target value must be greater than 0").max(10000, "Target value is too large"),
+  targetValue: z
+    .number()
+    .int("Target value must be a whole number")
+    .min(1, "Target value must be at least 1")
+    .max(10000, "Target value is too large"),
 
   rewardPoints: z.number().min(1, "Reward points must be at least 1").max(10000, "Reward points cannot exceed 10,000"),
 
@@ -71,6 +75,18 @@ export const challengeFormSchema = baseChallengeSchema
     {
       message: "Team ID is required for team challenges",
       path: ["teamId"],
+    },
+  )
+  .refine(
+    (data) => {
+      if (data.challengeType === "individual" && data.maxParticipants && data.maxParticipants !== 1) {
+        return false
+      }
+      return true
+    },
+    {
+      message: "Individual challenges must have exactly 1 participant",
+      path: ["maxParticipants"],
     },
   )
 
