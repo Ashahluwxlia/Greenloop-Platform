@@ -76,9 +76,8 @@ export async function POST(request: NextRequest) {
       description,
       challengeType,
       category,
-      startDate,
       endDate,
-      rewardPoints, // Fixed column name from pointsReward to rewardPoints
+      rewardPoints,
       targetMetric,
       targetValue,
       rewardDescription,
@@ -115,7 +114,6 @@ export async function POST(request: NextRequest) {
         description,
         challenge_type: challengeType,
         category,
-        start_date: startDate,
         end_date: endDate,
         reward_points: challengeType === "individual" ? 0 : rewardPoints,
         target_metric: targetMetric,
@@ -132,13 +130,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to create challenge in database" }, { status: 500 })
     }
 
-    if (challengeType === "individual" && challenge) {
-      await supabase.from("challenge_participants").insert({
-        challenge_id: challenge.id,
-        user_id: user.id,
-        team_id: null,
-      })
-    }
+    // Removed manual insertion for individual challenges as it's now handled by auto_join_personal_challenge trigger
 
     if (challengeType === "team" && teamId && challenge) {
       // Get all team members and add them as participants

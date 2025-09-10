@@ -14,20 +14,19 @@ import { ChallengeActions } from "@/components/challenge-actions"
 interface ChallengeParticipant {
   id: string
   user_id: string
-  current_progress: number
   completed: boolean
+  current_progress: number
   users: {
     id: string
     first_name: string
     last_name: string
     avatar_url: string | null
-    department: string | null
-    points: number
   }
 }
 
 interface LeaderboardEntry {
   current_progress: number
+  progress_percentage: number
   users:
     | {
         id: string
@@ -50,7 +49,7 @@ interface LeaderboardEntry {
 
 interface RecentActivity {
   id: string
-  created_at: string
+  completed_at: string
   users: {
     first_name: string
     last_name: string
@@ -58,8 +57,43 @@ interface RecentActivity {
   sustainability_actions: {
     title: string
     points_value: number
+    co2_impact: number
+    action_categories: {
+      name: string
+    }
   } | null
 }
+
+interface ChallengeActivity {
+  id: string
+  type: "challenge_activity"
+  created_at: string
+  activity_type: string
+  description: string
+  metadata: any
+  user: {
+    first_name: string
+    last_name: string
+    avatar_url: string
+  }
+}
+
+interface UserActionActivity {
+  id: string
+  type: "user_action"
+  created_at: string
+  action: {
+    title: string
+    points_value: number
+    co2_impact: number
+  } | null
+  user: {
+    first_name: string
+    last_name: string
+  } | null
+}
+
+type CombinedActivity = ChallengeActivity | UserActionActivity
 
 export default async function ChallengeDetailPage({ params }: { params: { id: string } }) {
   const supabase = await createClient()
@@ -79,8 +113,8 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
       challenge_participants (
         id,
         user_id,
-        current_progress,
         completed,
+        current_progress,
         users (first_name, last_name, avatar_url)
       )
     `)
@@ -98,11 +132,19 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     .eq("user_id", data.user.id)
     .single()
 
+  const { data: userProgressData } = await supabase
+    .from("challenge_progress")
+    .select("current_progress, progress_percentage, completed")
+    .eq("challenge_id", params.id)
+    .eq("user_id", data.user.id)
+    .single()
+
   // Get leaderboard for this challenge
   const { data: leaderboard } = await supabase
-    .from("challenge_participants")
+    .from("challenge_progress")
     .select(`
       current_progress,
+      progress_percentage,
       users (
         id,
         first_name,
@@ -116,33 +158,131 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     .order("current_progress", { ascending: false })
     .limit(10)
 
-  // Get recent actions related to this challenge
+  console.log("[v0] Challenge ID:", params.id)
+  console.log("[v0] Leaderboard data:", leaderboard)
+  console.log("[v0] Challenge participants:", challenge.challenge_participants)
+
+  const { data: challengeActivities } = await supabase
+    .from("recent_challenge_activities")
+    .select("*")
+    .eq("challenge_id", params.id)
+    .order("created_at", { ascending: false })
+    .limit(15)
+
   const { data: recentActions } = await supabase
     .from("user_actions")
     .select(`
       *,
       users (first_name, last_name),
-      sustainability_actions (title, points_value)
+      sustainability_actions (
+        title, 
+        points_value,
+        co2_impact,
+        action_categories (name)
+      )
     `)
     .in(
       "user_id",
       (challenge.challenge_participants as ChallengeParticipant[])?.map((p: ChallengeParticipant) => p.user_id) || [],
     )
-    .order("created_at", { ascending: false })
+    .gte("completed_at", challenge.start_date)
+    .lte("completed_at", challenge.end_date + "T23:59:59")
+    .eq("verification_status", "approved")
+    .order("completed_at", { ascending: false })
     .limit(10)
+
+  console.log("[v0] Challenge activities:", challengeActivities)
+  console.log("[v0] Recent actions raw:", recentActions)
+  console.log("[v0] Challenge category:", challenge.category)
+
+  const filteredRecentActions = recentActions?.filter((action) => {
+    if (challenge.category === "general") return true
+    const categoryMatch = action.sustainability_actions?.action_categories?.name === challenge.category
+    console.log(
+      "[v0] Action category:",
+      action.sustainability_actions?.action_categories?.name,
+      "Challenge category:",
+      challenge.category,
+      "Match:",
+      categoryMatch,
+    )
+    return categoryMatch
+  })
+
+  const combinedActivities: CombinedActivity[] = [
+    ...(challengeActivities?.map((activity) => ({
+      id: activity.id,
+      type: "challenge_activity" as const,
+      created_at: activity.created_at,
+      activity_type: activity.activity_type,
+      description: activity.activity_description,
+      metadata: activity.metadata,
+      user: {
+        first_name: activity.first_name,
+        last_name: activity.last_name,
+        avatar_url: activity.avatar_url,
+      },
+    })) || []),
+    ...(filteredRecentActions?.map((action) => ({
+      id: action.id,
+      type: "user_action" as const,
+      created_at: action.completed_at,
+      action: action.sustainability_actions,
+      user: action.users,
+    })) || []),
+  ]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 20)
+
+  console.log("[v0] Combined activities:", combinedActivities)
 
   // Calculate challenge statistics
   const totalParticipants = challenge.challenge_participants?.length || 0
-  const completedParticipants =
-    (challenge.challenge_participants as ChallengeParticipant[])?.filter((p: ChallengeParticipant) => p.completed)
-      .length || 0
-  const progressPercentage = totalParticipants > 0 ? Math.round((completedParticipants / totalParticipants) * 100) : 0
+
+  // Get progress data from challenge_progress table
+  const { data: progressData } = await supabase
+    .from("challenge_progress")
+    .select("current_progress, progress_percentage, completed")
+    .eq("challenge_id", params.id)
+
+  console.log("[v0] Progress data:", progressData)
+
+  const completedParticipants = progressData?.filter((p) => p.completed).length || 0
+  const averageProgress = progressData?.length
+    ? Math.round(progressData.reduce((sum, p) => sum + (p.progress_percentage || 0), 0) / progressData.length)
+    : 0
 
   const startDate = new Date(challenge.start_date)
   const endDate = new Date(challenge.end_date)
   const now = new Date()
   const daysLeft = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
   const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+
+  const formatTargetMetric = (metric: string) => {
+    switch (metric) {
+      case "actions":
+        return "Actions Completed"
+      case "points":
+        return "Points Earned"
+      case "co2_saved":
+        return "CO2 Saved (kg)"
+      default:
+        return metric
+    }
+  }
+
+  const formatProgressValue = (progress: number, metric: string) => {
+    switch (metric) {
+      case "actions":
+        return `${progress} actions`
+      case "points":
+        return `${progress} pts`
+      case "co2_saved":
+        return `${progress} kg CO2`
+      default:
+        return progress.toString()
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -168,8 +308,12 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
             <ChallengeActions
               challengeId={challenge.id}
               isParticipating={!!userParticipation}
-              isCompleted={userParticipation?.completed || false}
+              isCompleted={userProgressData?.completed || false}
               challengeEnded={daysLeft === 0}
+              challengeType={challenge.challenge_type}
+              userProgress={userProgressData?.current_progress || 0}
+              targetValue={challenge.target_value}
+              targetMetric={challenge.target_metric}
             />
           </div>
 
@@ -216,12 +360,12 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Progress</p>
-                  <p className="text-2xl font-bold">{progressPercentage}%</p>
+                  <p className="text-2xl font-bold">{averageProgress}%</p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-primary" />
               </div>
               <div className="mt-4">
-                <Progress value={progressPercentage} />
+                <Progress value={averageProgress} />
                 <p className="text-xs text-muted-foreground mt-1">Challenge completion</p>
               </div>
             </CardContent>
@@ -233,7 +377,7 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Reward Points</p>
-                    <p className="text-2xl font-bold">{challenge.points_reward}</p>
+                    <p className="text-2xl font-bold">{challenge.reward_points || 0}</p>
                   </div>
                   <Award className="h-8 w-8 text-primary" />
                 </div>
@@ -295,8 +439,12 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="font-bold text-primary">{participant.current_progress}%</p>
-                            <p className="text-sm text-muted-foreground">progress</p>
+                            <p className="font-bold text-primary">
+                              {formatProgressValue(participant.current_progress, challenge.target_metric)}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {Math.round(participant.progress_percentage || 0)}% complete
+                            </p>
                           </div>
                         </div>
                       ) : null
@@ -313,29 +461,70 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
             <Card>
               <CardHeader>
                 <CardTitle>Recent Activity</CardTitle>
-                <CardDescription>Latest actions logged by participants</CardDescription>
+                <CardDescription>Latest challenge-related actions and progress updates</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {recentActions?.length ? (
-                    recentActions.map((activity) => (
-                      <div key={activity.id} className="flex items-center justify-between p-4 rounded-lg border">
+                  {combinedActivities?.length ? (
+                    combinedActivities.map((activity) => (
+                      <div
+                        key={`${activity.type}-${activity.id}`}
+                        className="flex items-center justify-between p-4 rounded-lg border"
+                      >
                         <div className="flex items-center gap-4">
                           <Avatar>
                             <AvatarFallback>
-                              {activity.users?.first_name?.[0]}
-                              {activity.users?.last_name?.[0]}
+                              {activity.user?.first_name?.[0]}
+                              {activity.user?.last_name?.[0]}
                             </AvatarFallback>
                           </Avatar>
                           <div>
                             <p className="font-medium">
-                              {activity.users?.first_name} {activity.users?.last_name}
+                              {activity.user?.first_name} {activity.user?.last_name}
                             </p>
-                            <p className="text-sm text-muted-foreground">{activity.sustainability_actions?.title}</p>
+                            {activity.type === "challenge_activity" ? (
+                              <div>
+                                <p className="text-sm text-muted-foreground">{activity.description}</p>
+                                {activity.activity_type === "milestone_reached" && (
+                                  <Badge variant="secondary" className="mt-1 text-xs">
+                                    🎯 {activity.metadata?.milestone} Milestone
+                                  </Badge>
+                                )}
+                                {activity.activity_type === "challenge_completed" && (
+                                  <Badge variant="default" className="mt-1 text-xs bg-green-600">
+                                    🏆 Challenge Completed!
+                                  </Badge>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">{activity.action?.title}</p>
+                            )}
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-primary">+{activity.sustainability_actions?.points_value} pts</p>
+                          {activity.type === "challenge_activity" ? (
+                            <div className="space-y-1">
+                              {activity.metadata?.points_earned && (
+                                <p className="font-bold text-primary">+{activity.metadata.points_earned} pts</p>
+                              )}
+                              {activity.metadata?.co2_saved && (
+                                <p className="text-sm text-green-600">-{activity.metadata.co2_saved} kg CO2</p>
+                              )}
+                              {activity.metadata?.new_progress && (
+                                <p className="text-sm text-blue-600">
+                                  Progress:{" "}
+                                  {formatProgressValue(activity.metadata.new_progress, activity.metadata.target_metric)}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <p className="font-bold text-primary">+{activity.action?.points_value} pts</p>
+                              {activity.action?.co2_impact && (
+                                <p className="text-sm text-green-600">-{activity.action.co2_impact} kg CO2</p>
+                              )}
+                            </div>
+                          )}
                           <p className="text-sm text-muted-foreground">
                             {new Date(activity.created_at).toLocaleDateString()}
                           </p>
@@ -343,7 +532,7 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                       </div>
                     ))
                   ) : (
-                    <p className="text-muted-foreground text-center py-8">No recent activity</p>
+                    <p className="text-muted-foreground text-center py-8">No challenge-related activity yet</p>
                   )}
                 </div>
               </CardContent>
@@ -369,19 +558,23 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                       <li>• Start Date: {new Date(challenge.start_date).toLocaleDateString()}</li>
                       <li>• End Date: {new Date(challenge.end_date).toLocaleDateString()}</li>
                       <li>• Category: {challenge.category}</li>
-                      <li>• Target Value: {challenge.target_value || "N/A"}</li>
+                      <li>• Target Metric: {formatTargetMetric(challenge.target_metric)}</li>
+                      <li>
+                        • Target Value: {formatProgressValue(challenge.target_value || 0, challenge.target_metric)}
+                      </li>
                     </ul>
                   </div>
 
                   <div>
                     <h4 className="font-medium mb-2">Rewards</h4>
                     <ul className="space-y-2 text-sm text-muted-foreground">
-                      {challenge.challenge_type !== "individual" && (
-                        <li>• {challenge.points_reward} points for completion</li>
+                      {challenge.challenge_type !== "individual" && challenge.reward_points > 0 && (
+                        <li>• {challenge.reward_points} points for completion</li>
                       )}
                       <li>• Badge achievement</li>
                       <li>• Leaderboard recognition</li>
                       <li>• Environmental impact tracking</li>
+                      {challenge.reward_description && <li>• {challenge.reward_description}</li>}
                     </ul>
                   </div>
                 </div>

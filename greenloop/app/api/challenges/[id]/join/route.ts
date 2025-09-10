@@ -44,14 +44,17 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Already participating in this challenge" }, { status: 400 })
     }
 
-    // Check max participants limit
     if (challenge.max_participants) {
-      const { count } = await supabase
-        .from("challenge_participants")
-        .select("*", { count: "exact", head: true })
-        .eq("challenge_id", challengeId)
+      const { data: canJoin, error: checkError } = await supabase.rpc("check_max_participants", {
+        challenge_uuid: challengeId,
+      })
 
-      if (count && count >= challenge.max_participants) {
+      if (checkError) {
+        console.error("Error checking max participants:", checkError)
+        return NextResponse.json({ error: "Failed to validate participation" }, { status: 500 })
+      }
+
+      if (!canJoin) {
         return NextResponse.json({ error: "Challenge is full" }, { status: 400 })
       }
     }

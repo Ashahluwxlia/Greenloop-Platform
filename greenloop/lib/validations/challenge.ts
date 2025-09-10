@@ -17,17 +17,24 @@ const baseChallengeSchema = z.object({
     required_error: "Challenge type is required",
   }),
 
-  category: z.enum(["energy", "waste", "transport", "water", "general"], {
-    required_error: "Category is required",
-  }),
+  category: z.enum(
+    [
+      "Energy",
+      "Waste Reduction",
+      "Transportation",
+      "Water Conservation",
+      "Food & Diet",
+      "Office Practices",
+      "Community",
+      "Digital",
+      "general",
+    ],
+    {
+      required_error: "Category is required",
+    },
+  ),
 
-  startDate: z.string().refine((date) => {
-    const startDate = new Date(date)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return startDate >= today
-  }, "Start date cannot be in the past"),
-
+  startDate: z.string(),
   endDate: z.string(),
 
   targetMetric: z.enum(["points", "actions", "co2_saved"], {
@@ -40,7 +47,7 @@ const baseChallengeSchema = z.object({
     .min(1, "Target value must be at least 1")
     .max(10000, "Target value is too large"),
 
-  rewardPoints: z.number().min(1, "Reward points must be at least 1").max(10000, "Reward points cannot exceed 10,000"),
+  rewardPoints: z.number().min(0, "Reward points cannot be negative").max(10000, "Reward points cannot exceed 10,000"),
 
   rewardDescription: z.string().max(200, "Reward description must be less than 200 characters").optional(),
 
@@ -62,6 +69,18 @@ export const challengeFormSchema = baseChallengeSchema
     },
     {
       message: "End date must be after start date",
+      path: ["endDate"],
+    },
+  )
+  .refine(
+    (data) => {
+      const endDate = new Date(data.endDate)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      return endDate > today
+    },
+    {
+      message: "End date must be in the future",
       path: ["endDate"],
     },
   )
@@ -89,6 +108,18 @@ export const challengeFormSchema = baseChallengeSchema
       path: ["maxParticipants"],
     },
   )
+  .refine(
+    (data) => {
+      if (data.challengeType === "individual" && data.rewardPoints > 0) {
+        return false
+      }
+      return true
+    },
+    {
+      message: "Personal challenges cannot have reward points",
+      path: ["rewardPoints"],
+    },
+  )
 
 export type ChallengeFormData = z.infer<typeof challengeFormSchema>
 
@@ -112,6 +143,17 @@ export const challengeServerSchema = serverBaseSchema
   )
   .refine(
     (data) => {
+      const endDate = new Date(data.endDate)
+      const now = new Date()
+      return endDate > now
+    },
+    {
+      message: "End date must be in the future",
+      path: ["endDate"],
+    },
+  )
+  .refine(
+    (data) => {
       if (data.challengeType === "team") {
         return !!data.teamId
       }
@@ -122,10 +164,6 @@ export const challengeServerSchema = serverBaseSchema
       path: ["teamId"],
     },
   )
-  .refine((data) => {
-    // Additional server-side validations can go here
-    return true
-  })
 
 export type ChallengeServerData = z.infer<typeof challengeServerSchema>
 
@@ -144,6 +182,17 @@ export const adminChallengeSchema = adminBaseSchema
     },
     {
       message: "End date must be after start date",
+      path: ["endDate"],
+    },
+  )
+  .refine(
+    (data) => {
+      const endDate = new Date(data.endDate)
+      const now = new Date()
+      return endDate > now
+    },
+    {
+      message: "End date must be in the future",
       path: ["endDate"],
     },
   )

@@ -38,7 +38,7 @@ export default async function ChallengesPage() {
     .gte("end_date", new Date().toISOString())
     .order("start_date", { ascending: false })
 
-  // Get user's participations
+  // Get user's participations with progress data
   const { data: userParticipations } = await supabase
     .from("challenge_participants")
     .select(`
@@ -47,6 +47,13 @@ export default async function ChallengesPage() {
     `)
     .eq("user_id", data.user.id)
     .order("joined_at", { ascending: false })
+
+  const { data: userProgressData } = await supabase
+    .from("challenge_progress")
+    .select("challenge_id, current_progress, progress_percentage, completed")
+    .eq("user_id", data.user.id)
+
+  const progressMap = new Map(userProgressData?.map((p) => [p.challenge_id, p]) || [])
 
   // Get user's team
   const { data: userTeam } = await supabase
@@ -59,7 +66,7 @@ export default async function ChallengesPage() {
 
   const { data: allUserParticipations } = await supabase
     .from("challenge_participants")
-    .select("challenge_id, completed")
+    .select("challenge_id, completed, current_progress")
     .eq("user_id", data.user.id)
 
   const participationMap = new Map(allUserParticipations?.map((p) => [p.challenge_id, p]) || [])
@@ -68,6 +75,7 @@ export default async function ChallengesPage() {
     allChallenges?.map((challenge) => {
       const participantCount = challenge.challenge_participants?.length || 0
       const userParticipation = participationMap.get(challenge.id)
+      const userProgress = progressMap.get(challenge.id)
       const challengeEnded = new Date(challenge.end_date) < new Date()
 
       return {
@@ -75,7 +83,9 @@ export default async function ChallengesPage() {
         participants: participantCount,
         maxParticipants: challenge.max_participants || 100,
         isParticipating: !!userParticipation,
-        isCompleted: userParticipation?.completed || false,
+        isCompleted: userProgress?.completed || false,
+        userProgress: userProgress?.current_progress || 0,
+        progressPercentage: userProgress?.progress_percentage || 0,
         challengeEnded,
       }
     }) || []
@@ -139,7 +149,7 @@ export default async function ChallengesPage() {
                             <p className="text-xs text-muted-foreground">Participants</p>
                           </div>
                           <div className="text-center p-3 bg-muted/50 rounded-lg">
-                            <div className="text-lg font-bold text-accent">{challenge.points_reward}</div>
+                            <div className="text-lg font-bold text-accent">{challenge.reward_points || 0}</div>
                             <p className="text-xs text-muted-foreground">Points</p>
                           </div>
                         </div>
@@ -167,12 +177,15 @@ export default async function ChallengesPage() {
                           </span>
                         </div>
 
-                        {/* Action Button */}
                         <ChallengeCardActions
                           challengeId={challenge.id}
                           isParticipating={challenge.isParticipating}
                           isCompleted={challenge.isCompleted}
                           challengeEnded={challenge.challengeEnded}
+                          challengeType={challenge.challenge_type}
+                          userProgress={challenge.userProgress}
+                          targetValue={challenge.target_value}
+                          progressPercentage={challenge.progressPercentage}
                         />
                       </CardContent>
                     </Card>
@@ -199,14 +212,14 @@ export default async function ChallengesPage() {
                 <div className="space-y-4">
                   {myParticipations.map((participation) => {
                     const challenge = participation.challenges
-                    const progress =
-                      challenge.target_value > 0 ? (participation.current_progress / challenge.target_value) * 100 : 0
+                    const userProgress = progressMap.get(challenge.id)
+                    const progress = userProgress?.progress_percentage || 0
                     const daysLeft = Math.ceil(
                       (new Date(challenge.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24),
                     )
-                    const pointsEarned = participation.completed
-                      ? challenge.points_reward
-                      : Math.floor((progress / 100) * challenge.points_reward)
+                    const pointsEarned = userProgress?.completed
+                      ? challenge.reward_points
+                      : Math.floor((progress / 100) * (challenge.reward_points || 0))
 
                     return (
                       <Card key={participation.id}>
@@ -215,8 +228,8 @@ export default async function ChallengesPage() {
                             <div>
                               <h3 className="font-semibold text-lg">{challenge.title}</h3>
                               <div className="flex items-center gap-4 mt-1">
-                                <Badge variant={participation.completed ? "secondary" : "default"}>
-                                  {participation.completed ? "Completed" : "In Progress"}
+                                <Badge variant={userProgress?.completed ? "default" : "secondary"}>
+                                  {userProgress?.completed ? "Completed" : "In Progress"}
                                 </Badge>
                                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                                   <Clock className="h-4 w-4" />
@@ -234,7 +247,7 @@ export default async function ChallengesPage() {
                             <div className="flex justify-between text-sm">
                               <span>Progress</span>
                               <span>
-                                {participation.current_progress} / {challenge.target_value}
+                                {userProgress?.current_progress || 0} / {challenge.target_value}
                               </span>
                             </div>
                             <Progress value={progress} className="h-3" />
@@ -245,7 +258,11 @@ export default async function ChallengesPage() {
                             <Button asChild>
                               <Link href={`/challenges/${challenge.id}`}>View Details</Link>
                             </Button>
-                            {!participation.completed && <Button variant="outline">Log Progress</Button>}
+                            {!userProgress?.completed && (
+                              <Button variant="outline" asChild>
+                                <Link href="/actions">Log Actions</Link>
+                              </Button>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -269,10 +286,10 @@ export default async function ChallengesPage() {
             </TabsContent>
 
             <TabsContent value="completed" className="space-y-6">
-              {myParticipations.filter((p) => p.completed).length > 0 ? (
+              {myParticipations.filter((p) => progressMap.get(p.challenges.id)?.completed).length > 0 ? (
                 <div className="space-y-4">
                   {myParticipations
-                    .filter((p) => p.completed)
+                    .filter((p) => progressMap.get(p.challenges.id)?.completed)
                     .map((participation) => {
                       const challenge = participation.challenges
                       return (
@@ -282,13 +299,13 @@ export default async function ChallengesPage() {
                               <div>
                                 <h3 className="font-semibold text-lg">{challenge.title}</h3>
                                 <p className="text-muted-foreground">{challenge.description}</p>
-                                <Badge variant="secondary" className="mt-2">
+                                <Badge variant="default" className="mt-2 bg-green-600">
                                   <Award className="h-3 w-3 mr-1" />
                                   Completed
                                 </Badge>
                               </div>
                               <div className="text-right">
-                                <div className="text-2xl font-bold text-primary">{challenge.points_reward}</div>
+                                <div className="text-2xl font-bold text-primary">{challenge.reward_points || 0}</div>
                                 <p className="text-sm text-muted-foreground">Points earned</p>
                               </div>
                             </div>

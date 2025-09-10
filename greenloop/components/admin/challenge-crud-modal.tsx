@@ -66,7 +66,6 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
       description: "",
       challengeType: "individual",
       category: "general",
-      startDate: new Date().toISOString().split("T")[0],
       endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       targetMetric: "actions",
       targetValue: 10,
@@ -109,7 +108,6 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
     if (isOpen && challenge) {
       console.log("[v0] Challenge modal opened with data:", challenge)
 
-      // Format dates properly for date inputs
       const formatDateForInput = (dateString: string) => {
         if (!dateString) return new Date().toISOString().split("T")[0]
         const date = new Date(dateString)
@@ -121,21 +119,17 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
         description: challenge.description || "",
         category: (challenge.category as any) || "general",
         challengeType: (challenge.challenge_type as any) || "individual",
-        startDate: challenge.start_date
-          ? formatDateForInput(challenge.start_date)
-          : new Date().toISOString().split("T")[0],
         endDate: challenge.end_date
           ? formatDateForInput(challenge.end_date)
           : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
         targetMetric: (challenge.target_metric as any) || "actions",
         targetValue: challenge.target_value || 10,
-        rewardPoints: challenge.reward_points || 100,
+        rewardPoints: challenge.challenge_type === "individual" ? 0 : challenge.reward_points || 100,
         rewardDescription: challenge.reward_description || "",
-        maxParticipants: challenge.max_participants || undefined,
+        maxParticipants: challenge.challenge_type === "individual" ? 1 : challenge.max_participants || undefined,
         isActive: challenge.is_active ?? true,
       })
     } else if (isOpen && !challenge) {
-      // Reset form for new challenge
       form.reset()
     }
   }, [isOpen, challenge, form])
@@ -163,19 +157,17 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
         description: data.description,
         category: data.category,
         challenge_type: data.challengeType,
-        start_date: data.startDate,
         end_date: data.endDate,
         target_metric: data.targetMetric,
         target_value: data.targetValue,
-        reward_points: data.rewardPoints,
+        reward_points: data.challengeType === "individual" ? 0 : data.rewardPoints,
         reward_description: data.rewardDescription,
-        max_participants: data.maxParticipants,
+        max_participants: data.challengeType === "individual" ? 1 : data.maxParticipants,
         is_active: data.isActive,
         ...(data.challengeType === "team" && data.teamId && { team_id: data.teamId }),
       }
 
       if (challenge?.id) {
-        // Update existing challenge
         const { error } = await supabase.from("challenges").update(challengeData).eq("id", challenge.id)
 
         if (error) throw error
@@ -191,7 +183,6 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
           description: "Challenge updated successfully",
         })
       } else {
-        // Create new challenge
         const { data: userData } = await supabase.auth.getUser()
         const { data: newChallenge, error } = await supabase
           .from("challenges")
@@ -319,10 +310,14 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="energy">Energy Conservation</SelectItem>
-                        <SelectItem value="waste">Waste Reduction</SelectItem>
-                        <SelectItem value="transport">Sustainable Transport</SelectItem>
-                        <SelectItem value="water">Water Conservation</SelectItem>
+                        <SelectItem value="Energy">Energy Conservation</SelectItem>
+                        <SelectItem value="Waste Reduction">Waste Reduction</SelectItem>
+                        <SelectItem value="Transportation">Sustainable Transport</SelectItem>
+                        <SelectItem value="Water Conservation">Water Conservation</SelectItem>
+                        <SelectItem value="Food & Diet">Food & Diet</SelectItem>
+                        <SelectItem value="Office Practices">Office Practices</SelectItem>
+                        <SelectItem value="Community">Community</SelectItem>
+                        <SelectItem value="Digital">Digital</SelectItem>
                         <SelectItem value="general">General Sustainability</SelectItem>
                       </SelectContent>
                     </Select>
@@ -344,7 +339,7 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="individual">Individual</SelectItem>
+                        <SelectItem value="individual">Individual (Personal)</SelectItem>
                         <SelectItem value="team">Team</SelectItem>
                         <SelectItem value="company">Company-wide</SelectItem>
                       </SelectContent>
@@ -355,35 +350,19 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="startDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Start Date</FormLabel>
-                    <FormControl>
-                      <Input type="date" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="endDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>End Date</FormLabel>
-                    <FormControl>
-                      <Input type="date" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="endDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>End Date</FormLabel>
+                  <FormControl>
+                    <Input type="date" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <div className="grid grid-cols-3 gap-4">
               <FormField
@@ -438,10 +417,20 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                       <Input
                         type="number"
                         min="0"
+                        disabled={challengeType === "individual"}
+                        placeholder={challengeType === "individual" ? "0 (Personal)" : "Enter points"}
                         {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value) || 10)}
+                        value={challengeType === "individual" ? 0 : field.value}
+                        onChange={(e) =>
+                          field.onChange(challengeType === "individual" ? 0 : Number(e.target.value) || 0)
+                        }
                       />
                     </FormControl>
+                    {challengeType === "individual" && (
+                      <FormDescription className="text-xs text-muted-foreground">
+                        Personal challenges cannot have reward points
+                      </FormDescription>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -473,11 +462,22 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                       <Input
                         type="number"
                         min="1"
-                        placeholder="Leave empty for unlimited"
+                        disabled={challengeType === "individual"}
+                        placeholder={challengeType === "individual" ? "1 (Personal)" : "Leave empty for unlimited"}
                         {...field}
-                        onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : undefined)}
+                        value={challengeType === "individual" ? 1 : field.value || ""}
+                        onChange={(e) =>
+                          field.onChange(
+                            challengeType === "individual" ? 1 : e.target.value ? Number(e.target.value) : undefined,
+                          )
+                        }
                       />
                     </FormControl>
+                    {challengeType === "individual" && (
+                      <FormDescription className="text-xs text-muted-foreground">
+                        Personal challenges are limited to 1 participant (yourself)
+                      </FormDescription>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

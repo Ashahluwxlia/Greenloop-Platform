@@ -33,11 +33,10 @@ export default function CreateChallengePage() {
       description: "",
       challengeType: "individual",
       category: "general",
-      startDate: new Date().toISOString().split("T")[0],
       endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       targetMetric: "actions",
       targetValue: 10,
-      rewardPoints: 0,
+      rewardPoints: 1,
       rewardDescription: "",
       maxParticipants: 1,
       teamId: undefined,
@@ -107,7 +106,6 @@ export default function CreateChallengePage() {
         description: data.description.trim(),
         challengeType: data.challengeType,
         category: data.category,
-        startDate: data.startDate,
         endDate: data.endDate,
         rewardPoints: data.rewardPoints,
         targetMetric: data.targetMetric,
@@ -341,25 +339,6 @@ export default function CreateChallengePage() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <FormField
                       control={form.control}
-                      name="startDate"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>
-                            Start Date <span className="text-destructive">*</span>
-                          </FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <Input type="date" {...field} />
-                              <CalendarIcon className="absolute right-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
                       name="endDate"
                       render={({ field }) => (
                         <FormItem>
@@ -372,6 +351,7 @@ export default function CreateChallengePage() {
                               <CalendarIcon className="absolute right-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
                             </div>
                           </FormControl>
+                          <FormDescription>Challenge will start immediately upon creation</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -422,10 +402,14 @@ export default function CreateChallengePage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="energy">Energy Conservation</SelectItem>
-                              <SelectItem value="waste">Waste Reduction</SelectItem>
-                              <SelectItem value="transport">Sustainable Transport</SelectItem>
-                              <SelectItem value="water">Water Conservation</SelectItem>
+                              <SelectItem value="Energy">Energy Conservation</SelectItem>
+                              <SelectItem value="Waste Reduction">Waste Reduction</SelectItem>
+                              <SelectItem value="Transportation">Sustainable Transport</SelectItem>
+                              <SelectItem value="Water Conservation">Water Conservation</SelectItem>
+                              <SelectItem value="Food & Diet">Food & Diet</SelectItem>
+                              <SelectItem value="Office Practices">Office Practices</SelectItem>
+                              <SelectItem value="Community">Community</SelectItem>
+                              <SelectItem value="Digital">Digital</SelectItem>
                               <SelectItem value="general">General Sustainability</SelectItem>
                             </SelectContent>
                           </Select>
