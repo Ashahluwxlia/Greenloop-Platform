@@ -1,43 +1,54 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
 import { createClient } from "@/lib/supabase/client"
+import { challengeFormSchema, type ChallengeFormData } from "@/lib/validations/challenge"
 import { Navigation } from "@/components/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { CalendarIcon, Trophy, Target, ArrowLeft, AlertCircle, CheckCircle } from "lucide-react"
 import Link from "next/link"
 
 export default function CreateChallengePage() {
   const [user, setUser] = useState<any>(null)
   const [userTeams, setUserTeams] = useState<any[]>([])
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    challengeType: "",
-    category: "",
-    startDate: "",
-    endDate: "",
-    pointsReward: "",
-    targetValue: "",
-    maxParticipants: "",
-    teamId: "",
-  })
   const [isLoading, setIsLoading] = useState(true)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
   const router = useRouter()
   const supabase = createClient()
+
+  const form = useForm<ChallengeFormData>({
+    resolver: zodResolver(challengeFormSchema),
+    defaultValues: {
+      title: "",
+      description: "",
+      challengeType: "individual",
+      category: "general",
+      startDate: new Date().toISOString().split("T")[0],
+      endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+      targetMetric: "actions",
+      targetValue: 10,
+      rewardPoints: 100,
+      rewardDescription: "",
+      maxParticipants: undefined,
+      teamId: undefined,
+    },
+  })
+
+  const {
+    watch,
+    formState: { errors, isSubmitting },
+  } = form
+  const challengeType = watch("challengeType")
 
   useEffect(() => {
     async function loadData() {
@@ -62,7 +73,7 @@ export default function CreateChallengePage() {
 
         setUserTeams(teams?.map((tm) => tm.teams) || [])
       } catch (err) {
-        setError("Failed to load data")
+        console.error("Failed to load data:", err)
       } finally {
         setIsLoading(false)
       }
@@ -70,10 +81,6 @@ export default function CreateChallengePage() {
 
     loadData()
   }, [router, supabase])
-
-  const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
-  }
 
   const getAvailableChallengeTypes = () => {
     const types = [{ value: "individual", label: "Personal Challenge" }]
@@ -91,56 +98,23 @@ export default function CreateChallengePage() {
     return types
   }
 
-  const validateForm = () => {
-    if (!formData.title.trim()) return "Title is required"
-    if (!formData.description.trim()) return "Description is required"
-    if (!formData.challengeType) return "Challenge type is required"
-    if (!formData.category) return "Category is required"
-    if (!formData.startDate) return "Start date is required"
-    if (!formData.endDate) return "End date is required"
-    if (!formData.pointsReward) return "Points reward is required"
-    if (!formData.targetValue) return "Target value is required"
-
-    const startDate = new Date(formData.startDate)
-    const endDate = new Date(formData.endDate)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    if (startDate < today) return "Start date cannot be in the past"
-    if (endDate <= startDate) return "End date must be after start date"
-
-    if (formData.challengeType === "team" && !formData.teamId) {
-      return "Please select a team for team challenges"
-    }
-
-    return null
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const onSubmit = async (data: ChallengeFormData) => {
     if (!user) return
-
-    const validationError = validateForm()
-    if (validationError) {
-      setError(validationError)
-      return
-    }
-
-    setIsSubmitting(true)
-    setError(null)
 
     try {
       const challengeData = {
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        challengeType: formData.challengeType,
-        category: formData.category,
-        startDate: formData.startDate,
-        endDate: formData.endDate,
-        pointsReward: Number.parseInt(formData.pointsReward),
-        targetValue: Number.parseFloat(formData.targetValue),
-        maxParticipants: formData.maxParticipants ? Number.parseInt(formData.maxParticipants) : null,
-        teamId: formData.challengeType === "team" ? formData.teamId : null,
+        title: data.title.trim(),
+        description: data.description.trim(),
+        challengeType: data.challengeType,
+        category: data.category,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        rewardPoints: data.rewardPoints,
+        targetMetric: data.targetMetric,
+        targetValue: data.targetValue,
+        rewardDescription: data.rewardDescription,
+        maxParticipants: data.maxParticipants,
+        teamId: data.challengeType === "team" ? data.teamId : undefined,
       }
 
       const response = await fetch("/api/challenges", {
@@ -154,19 +128,27 @@ export default function CreateChallengePage() {
       const result = await response.json()
 
       if (!response.ok) {
+        if (result.details) {
+          // Handle validation errors from server
+          Object.entries(result.details).forEach(([field, messages]) => {
+            form.setError(field as keyof ChallengeFormData, {
+              message: Array.isArray(messages) ? messages[0] : (messages as string),
+            })
+          })
+          return
+        }
         throw new Error(result.error || "Failed to create challenge")
       }
 
       setSuccess(true)
 
-      // Redirect after success
       setTimeout(() => {
-        router.push(`/challenges/${result.challenge.id}`)
+        router.push("/challenges")
       }, 2000)
     } catch (err: any) {
-      setError(err.message || "Failed to create challenge")
-    } finally {
-      setIsSubmitting(false)
+      form.setError("root", {
+        message: err.message || "Failed to create challenge",
+      })
     }
   }
 
@@ -248,191 +230,296 @@ export default function CreateChallengePage() {
               <CardDescription>Set up your challenge parameters and goals</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="title">
-                      Challenge Title <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="title"
-                      placeholder="e.g., Zero Waste Week Challenge"
-                      value={formData.title}
-                      onChange={(e) => handleInputChange("title", e.target.value)}
-                      required
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Challenge Title <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <Input placeholder="e.g., Zero Waste Week Challenge" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="challengeType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Challenge Type <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select challenge type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {getAvailableChallengeTypes().map((type) => (
+                                <SelectItem key={type.value} value={type.value}>
+                                  {type.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="type">
-                      Challenge Type <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.challengeType}
-                      onValueChange={(value) => handleInputChange("challengeType", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select challenge type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getAvailableChallengeTypes().map((type) => (
-                          <SelectItem key={type.value} value={type.value}>
-                            {type.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                  {challengeType === "team" && (
+                    <FormField
+                      control={form.control}
+                      name="teamId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Select Team <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a team" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {userTeams.map((team) => (
+                                <SelectItem key={team.id} value={team.id}>
+                                  {team.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
-                {formData.challengeType === "team" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="team">
-                      Select Team <span className="text-destructive">*</span>
-                    </Label>
-                    <Select value={formData.teamId} onValueChange={(value) => handleInputChange("teamId", value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a team" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {userTeams.map((team) => (
-                          <SelectItem key={team.id} value={team.id}>
-                            {team.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">
-                    Description <span className="text-destructive">*</span>
-                  </Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Describe the challenge goals, rules, and expected outcomes..."
-                    className="min-h-[100px]"
-                    value={formData.description}
-                    onChange={(e) => handleInputChange("description", e.target.value)}
-                    required
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Description <span className="text-destructive">*</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="Describe the challenge goals, rules, and expected outcomes..."
+                            className="min-h-[100px]"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="start-date">
-                      Start Date <span className="text-destructive">*</span>
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="start-date"
-                        type="date"
-                        value={formData.startDate}
-                        onChange={(e) => handleInputChange("startDate", e.target.value)}
-                        required
-                      />
-                      <CalendarIcon className="absolute right-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="end-date">
-                      End Date <span className="text-destructive">*</span>
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="end-date"
-                        type="date"
-                        value={formData.endDate}
-                        onChange={(e) => handleInputChange("endDate", e.target.value)}
-                        required
-                      />
-                      <CalendarIcon className="absolute right-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="points">
-                      Points Reward <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="points"
-                      type="number"
-                      min="1"
-                      placeholder="100"
-                      value={formData.pointsReward}
-                      onChange={(e) => handleInputChange("pointsReward", e.target.value)}
-                      required
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="startDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Start Date <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input type="date" {...field} />
+                              <CalendarIcon className="absolute right-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="category">
-                      Category <span className="text-destructive">*</span>
-                    </Label>
-                    <Select value={formData.category} onValueChange={(value) => handleInputChange("category", value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="energy">Energy Conservation</SelectItem>
-                        <SelectItem value="waste">Waste Reduction</SelectItem>
-                        <SelectItem value="transport">Sustainable Transport</SelectItem>
-                        <SelectItem value="water">Water Conservation</SelectItem>
-                        <SelectItem value="general">General Sustainability</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                    <FormField
+                      control={form.control}
+                      name="endDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            End Date <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input type="date" {...field} />
+                              <CalendarIcon className="absolute right-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                  <div className="space-y-2">
-                    <Label htmlFor="target-value">
-                      Target Value <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="target-value"
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      placeholder="e.g., 10 (actions completed)"
-                      value={formData.targetValue}
-                      onChange={(e) => handleInputChange("targetValue", e.target.value)}
-                      required
+                    <FormField
+                      control={form.control}
+                      name="rewardPoints"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Points Reward <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              min="1"
+                              placeholder="100"
+                              {...field}
+                              onChange={(e) => field.onChange(Number(e.target.value))}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="max-participants">Max Participants</Label>
-                    <Input
-                      id="max-participants"
-                      type="number"
-                      min="1"
-                      placeholder="Leave empty for unlimited"
-                      value={formData.maxParticipants}
-                      onChange={(e) => handleInputChange("maxParticipants", e.target.value)}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="category"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Category <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select category" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="energy">Energy Conservation</SelectItem>
+                              <SelectItem value="waste">Waste Reduction</SelectItem>
+                              <SelectItem value="transport">Sustainable Transport</SelectItem>
+                              <SelectItem value="water">Water Conservation</SelectItem>
+                              <SelectItem value="general">General Sustainability</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="targetMetric"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Target Metric <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select metric" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="actions">Actions Completed</SelectItem>
+                              <SelectItem value="points">Points Earned</SelectItem>
+                              <SelectItem value="co2_saved">CO2 Saved (kg)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="targetValue"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Target Value <span className="text-destructive">*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              placeholder="e.g., 10"
+                              {...field}
+                              onChange={(e) => field.onChange(Number(e.target.value))}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
                   </div>
-                </div>
 
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="rewardDescription"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Reward Description</FormLabel>
+                          <FormControl>
+                            <Input placeholder="e.g., Green Champion Badge" {...field} />
+                          </FormControl>
+                          <FormDescription>Optional description of additional rewards</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                <div className="flex gap-4 pt-6">
-                  <Button type="submit" disabled={isSubmitting} className="flex-1">
-                    <Target className="mr-2 h-4 w-4" />
-                    {isSubmitting ? "Creating Challenge..." : "Create Challenge"}
-                  </Button>
-                  <Button type="button" variant="outline" asChild>
-                    <Link href="/challenges">Cancel</Link>
-                  </Button>
-                </div>
-              </form>
+                    <FormField
+                      control={form.control}
+                      name="maxParticipants"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Max Participants</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              min="1"
+                              placeholder="Leave empty for unlimited"
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : undefined)}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {errors.root && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{errors.root.message}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="flex gap-4 pt-6">
+                    <Button type="submit" disabled={isSubmitting} className="flex-1">
+                      <Target className="mr-2 h-4 w-4" />
+                      {isSubmitting ? "Creating Challenge..." : "Create Challenge"}
+                    </Button>
+                    <Button type="button" variant="outline" asChild>
+                      <Link href="/challenges">Cancel</Link>
+                    </Button>
+                  </div>
+                </form>
+              </Form>
             </CardContent>
           </Card>
         </div>

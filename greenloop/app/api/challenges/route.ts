@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
+import { challengeServerSchema } from "@/lib/validations/challenge"
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -54,6 +55,22 @@ export async function POST(request: NextRequest) {
     const { data: userProfile } = await supabase.from("users").select("is_admin").eq("id", user.id).single()
 
     const body = await request.json()
+
+    const validationResult = challengeServerSchema.safeParse({
+      ...body,
+      createdBy: user.id,
+    })
+
+    if (!validationResult.success) {
+      return NextResponse.json(
+        {
+          error: "Validation failed",
+          details: validationResult.error.flatten().fieldErrors,
+        },
+        { status: 400 },
+      )
+    }
+
     const {
       title,
       description,
@@ -61,11 +78,13 @@ export async function POST(request: NextRequest) {
       category,
       startDate,
       endDate,
-      pointsReward,
+      rewardPoints, // Fixed column name from pointsReward to rewardPoints
+      targetMetric,
       targetValue,
+      rewardDescription,
       maxParticipants,
       teamId,
-    } = body
+    } = validationResult.data
 
     // Validate permissions based on challenge type
     if (challengeType === "company" && !userProfile?.is_admin) {
@@ -98,16 +117,35 @@ export async function POST(request: NextRequest) {
         category,
         start_date: startDate,
         end_date: endDate,
-        points_reward: pointsReward,
+        reward_points: rewardPoints, // Fixed column name
+        target_metric: targetMetric, // Added target_metric
         target_value: targetValue,
+        reward_description: rewardDescription, // Added reward_description
         max_participants: maxParticipants,
-        team_id: challengeType === "team" ? teamId : null,
         created_by: user.id,
       })
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error("Database error:", error)
+      return NextResponse.json({ error: "Failed to create challenge in database" }, { status: 500 })
+    }
+
+    if (challengeType === "team" && teamId && challenge) {
+      // Get all team members and add them as participants
+      const { data: teamMembers } = await supabase.from("team_members").select("user_id").eq("team_id", teamId)
+
+      if (teamMembers && teamMembers.length > 0) {
+        const participants = teamMembers.map((member) => ({
+          challenge_id: challenge.id,
+          user_id: member.user_id,
+          team_id: teamId,
+        }))
+
+        await supabase.from("challenge_participants").insert(participants)
+      }
+    }
 
     return NextResponse.json({ challenge })
   } catch (error) {

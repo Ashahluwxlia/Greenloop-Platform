@@ -1,4 +1,6 @@
 
+\restrict J73svcw47yFMQ6rzMrkgiM629jT5ir6mV8oUk51Q4bIr7yfgrJ63RUfhvIbF9tC
+
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -132,6 +134,53 @@ $$;
 ALTER FUNCTION "public"."check_and_award_badges"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."check_privilege_escalation"() RETURNS TABLE("user_id" "uuid", "event_type" "text", "details" "jsonb")
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    sal.user_id,
+    sal.event_type,
+    sal.details
+  FROM public.security_audit_log sal
+  WHERE sal.created_at > NOW() - INTERVAL '24 hours'
+    AND sal.event_type LIKE '%admin%'
+    AND sal.severity IN ('high', 'critical')
+  ORDER BY sal.created_at DESC;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."check_privilege_escalation"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_expired_password_resets"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  DELETE FROM public.password_resets 
+  WHERE expires_at < NOW();
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_expired_password_resets"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_expired_sessions"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  DELETE FROM public.user_sessions 
+  WHERE expires_at < NOW() - INTERVAL '7 days';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_expired_sessions"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."create_user_preferences"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -144,6 +193,32 @@ $$;
 
 
 ALTER FUNCTION "public"."create_user_preferences"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."detect_suspicious_activity"() RETURNS TABLE("user_id" "uuid", "activity_type" "text", "count" bigint, "severity" "text")
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  -- Return users with excessive failed login attempts (would need to track this)
+  RETURN QUERY
+  SELECT 
+    ua.user_id,
+    'excessive_actions' as activity_type,
+    COUNT(*) as count,
+    CASE 
+      WHEN COUNT(*) > 100 THEN 'high'
+      WHEN COUNT(*) > 50 THEN 'medium'
+      ELSE 'low'
+    END as severity
+  FROM public.user_actions ua
+  WHERE ua.completed_at > NOW() - INTERVAL '1 hour'
+  GROUP BY ua.user_id
+  HAVING COUNT(*) > 20;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."detect_suspicious_activity"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_recent_admin_activities"("p_limit" integer DEFAULT 50) RETURNS TABLE("id" "uuid", "admin_name" "text", "action" character varying, "resource_type" character varying, "resource_id" "uuid", "details" "jsonb", "created_at" timestamp with time zone)
@@ -257,6 +332,66 @@ $$;
 ALTER FUNCTION "public"."handle_new_user"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."is_admin"("user_uuid" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.users 
+    WHERE id = user_uuid 
+    AND is_admin = true 
+    AND is_active = true
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."is_admin"("user_uuid" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_team_leader"("user_uuid" "uuid" DEFAULT "auth"."uid"(), "team_uuid" "uuid" DEFAULT NULL::"uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  IF team_uuid IS NULL THEN
+    RETURN EXISTS (
+      SELECT 1 FROM public.teams 
+      WHERE team_leader_id = user_uuid 
+      AND is_active = true
+    );
+  ELSE
+    RETURN EXISTS (
+      SELECT 1 FROM public.teams 
+      WHERE id = team_uuid 
+      AND team_leader_id = user_uuid 
+      AND is_active = true
+    );
+  END IF;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."is_team_leader"("user_uuid" "uuid", "team_uuid" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_team_member"("user_uuid" "uuid" DEFAULT "auth"."uid"(), "team_uuid" "uuid" DEFAULT NULL::"uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.team_members tm
+    JOIN public.teams t ON tm.team_id = t.id
+    WHERE tm.user_id = user_uuid 
+    AND (team_uuid IS NULL OR tm.team_id = team_uuid)
+    AND t.is_active = true
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."is_team_member"("user_uuid" "uuid", "team_uuid" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p_action" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb" DEFAULT NULL::"jsonb") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -281,6 +416,55 @@ $$;
 
 
 ALTER FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p_action" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."log_challenge_creation"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    -- Only log if created by admin
+    IF EXISTS (SELECT 1 FROM public.users WHERE id = NEW.created_by AND is_admin = true) THEN
+        INSERT INTO public.admin_activities (
+            admin_id,
+            action_type,
+            target_type,
+            target_id,
+            details
+        ) VALUES (
+            NEW.created_by,
+            'create',
+            'challenge',
+            NEW.id,
+            jsonb_build_object(
+                'title', NEW.title,
+                'type', NEW.challenge_type,
+                'category', NEW.category
+            )
+        );
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."log_challenge_creation"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text" DEFAULT NULL::"text", "p_resource_id" "uuid" DEFAULT NULL::"uuid", "p_details" "jsonb" DEFAULT NULL::"jsonb", "p_severity" "text" DEFAULT 'medium'::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  INSERT INTO public.security_audit_log (
+    user_id, event_type, resource_type, resource_id, details, severity
+  ) VALUES (
+    p_user_id, p_event_type, p_resource_type, p_resource_id, p_details, p_severity
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") RETURNS "void"
@@ -353,6 +537,35 @@ $$;
 
 
 ALTER FUNCTION "public"."simple_update_user_co2_savings"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."trigger_log_admin_action"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  -- Only log if user is admin
+  IF is_admin() THEN
+    PERFORM log_security_event(
+      auth.uid(),
+      TG_OP || '_' || TG_TABLE_NAME,
+      TG_TABLE_NAME,
+      COALESCE(NEW.id, OLD.id),
+      jsonb_build_object(
+        'operation', TG_OP,
+        'table', TG_TABLE_NAME,
+        'old_data', to_jsonb(OLD),
+        'new_data', to_jsonb(NEW)
+      ),
+      'medium'
+    );
+  END IF;
+  
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."trigger_log_admin_action"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_challenge_progress"() RETURNS "trigger"
@@ -582,6 +795,40 @@ CREATE TABLE IF NOT EXISTS "public"."action_categories" (
 ALTER TABLE "public"."action_categories" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."admin_activities" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "admin_id" "uuid" NOT NULL,
+    "action_type" character varying(100) NOT NULL,
+    "target_type" character varying(50),
+    "target_id" "uuid",
+    "description" "text",
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "details" "jsonb",
+    "ip_address" "inet",
+    "user_agent" "text"
+);
+
+
+ALTER TABLE "public"."admin_activities" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."admin_activities" IS 'Tracks all administrative activities for audit purposes';
+
+
+
+COMMENT ON COLUMN "public"."admin_activities"."details" IS 'Additional structured data about the activity';
+
+
+
+COMMENT ON COLUMN "public"."admin_activities"."ip_address" IS 'IP address of the admin performing the action';
+
+
+
+COMMENT ON COLUMN "public"."admin_activities"."user_agent" IS 'User agent string of the admin browser';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."admin_audit_log" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "admin_user_id" "uuid" NOT NULL,
@@ -615,7 +862,10 @@ CREATE TABLE IF NOT EXISTS "public"."users" (
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
     "is_active" boolean DEFAULT true,
-    "is_admin" boolean DEFAULT false
+    "is_admin" boolean DEFAULT false,
+    CONSTRAINT "users_co2_non_negative_check" CHECK (("total_co2_saved" >= (0)::numeric)),
+    CONSTRAINT "users_email_format_check" CHECK (("email" ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'::"text")),
+    CONSTRAINT "users_points_non_negative_check" CHECK (("points" >= 0))
 );
 
 
@@ -678,6 +928,8 @@ CREATE TABLE IF NOT EXISTS "public"."user_actions" (
     "completed_at" timestamp with time zone DEFAULT "now"(),
     "verified_at" timestamp with time zone,
     "verified_by" "uuid",
+    CONSTRAINT "user_actions_co2_non_negative_check" CHECK (("co2_saved" >= (0)::numeric)),
+    CONSTRAINT "user_actions_points_non_negative_check" CHECK (("points_earned" >= 0)),
     CONSTRAINT "user_actions_verification_status_check" CHECK (("verification_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))
 );
 
@@ -735,7 +987,11 @@ CREATE TABLE IF NOT EXISTS "public"."challenges" (
     "created_by" "uuid" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "category" "text" DEFAULT 'general'::"text",
-    CONSTRAINT "challenges_challenge_type_check" CHECK (("challenge_type" = ANY (ARRAY['individual'::"text", 'team'::"text", 'company'::"text"])))
+    CONSTRAINT "challenges_challenge_type_check" CHECK (("challenge_type" = ANY (ARRAY['individual'::"text", 'team'::"text", 'company'::"text"]))),
+    CONSTRAINT "challenges_dates_logical_check" CHECK (("end_date" > "start_date")),
+    CONSTRAINT "challenges_reward_points_non_negative_check" CHECK (("reward_points" >= 0)),
+    CONSTRAINT "challenges_target_metric_check" CHECK (("target_metric" = ANY (ARRAY['points'::"text", 'actions'::"text", 'co2_saved'::"text"]))),
+    CONSTRAINT "challenges_target_value_positive_check" CHECK (("target_value" > 0))
 );
 
 
@@ -796,7 +1052,8 @@ CREATE TABLE IF NOT EXISTS "public"."teams" (
     "total_co2_saved" numeric(10,2) DEFAULT 0,
     "is_active" boolean DEFAULT true,
     "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"()
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "teams_max_members_positive_check" CHECK ((("max_members" > 0) AND ("max_members" <= 1000)))
 );
 
 
@@ -1068,6 +1325,24 @@ CREATE TABLE IF NOT EXISTS "public"."password_resets" (
 ALTER TABLE "public"."password_resets" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."security_audit_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid",
+    "event_type" "text" NOT NULL,
+    "resource_type" "text",
+    "resource_id" "uuid",
+    "details" "jsonb",
+    "severity" "text" DEFAULT 'medium'::"text",
+    "ip_address" "inet",
+    "user_agent" "text",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "security_audit_log_severity_check" CHECK (("severity" = ANY (ARRAY['low'::"text", 'medium'::"text", 'high'::"text", 'critical'::"text"])))
+);
+
+
+ALTER TABLE "public"."security_audit_log" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."system_settings" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "setting_value" "text" NOT NULL,
@@ -1251,6 +1526,11 @@ ALTER TABLE ONLY "public"."action_categories"
 
 
 
+ALTER TABLE ONLY "public"."admin_activities"
+    ADD CONSTRAINT "admin_activities_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."admin_audit_log"
     ADD CONSTRAINT "admin_audit_log_pkey" PRIMARY KEY ("id");
 
@@ -1308,6 +1588,11 @@ ALTER TABLE ONLY "public"."password_resets"
 
 ALTER TABLE ONLY "public"."point_transactions"
     ADD CONSTRAINT "point_transactions_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."security_audit_log"
+    ADD CONSTRAINT "security_audit_log_pkey" PRIMARY KEY ("id");
 
 
 
@@ -1396,6 +1681,22 @@ ALTER TABLE ONLY "public"."users"
 
 
 
+CREATE INDEX "idx_admin_activities_action_type" ON "public"."admin_activities" USING "btree" ("action_type");
+
+
+
+CREATE INDEX "idx_admin_activities_admin_id" ON "public"."admin_activities" USING "btree" ("admin_id");
+
+
+
+CREATE INDEX "idx_admin_activities_created_at" ON "public"."admin_activities" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_admin_activities_target" ON "public"."admin_activities" USING "btree" ("target_type", "target_id");
+
+
+
 CREATE INDEX "idx_admin_audit_log_action" ON "public"."admin_audit_log" USING "btree" ("action_type");
 
 
@@ -1468,6 +1769,10 @@ CREATE INDEX "idx_news_articles_published_at" ON "public"."news_articles" USING 
 
 
 
+CREATE INDEX "idx_password_resets_expires" ON "public"."password_resets" USING "btree" ("expires_at");
+
+
+
 CREATE INDEX "idx_point_transactions_reference_type" ON "public"."point_transactions" USING "btree" ("reference_type");
 
 
@@ -1477,6 +1782,10 @@ CREATE INDEX "idx_point_transactions_transaction_type" ON "public"."point_transa
 
 
 CREATE INDEX "idx_point_transactions_user_id" ON "public"."point_transactions" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_security_audit_log_user_time" ON "public"."security_audit_log" USING "btree" ("user_id", "created_at");
 
 
 
@@ -1540,6 +1849,10 @@ CREATE INDEX "idx_user_actions_user_status" ON "public"."user_actions" USING "bt
 
 
 
+CREATE INDEX "idx_user_actions_user_time" ON "public"."user_actions" USING "btree" ("user_id", "completed_at");
+
+
+
 CREATE INDEX "idx_user_actions_verification_status" ON "public"."user_actions" USING "btree" ("verification_status");
 
 
@@ -1552,11 +1865,23 @@ CREATE INDEX "idx_user_analytics_user_id" ON "public"."user_analytics" USING "bt
 
 
 
+CREATE INDEX "idx_user_sessions_expires" ON "public"."user_sessions" USING "btree" ("expires_at");
+
+
+
+CREATE INDEX "idx_users_admin_active" ON "public"."users" USING "btree" ("is_admin", "is_active") WHERE ("is_admin" = true);
+
+
+
 CREATE INDEX "idx_users_department" ON "public"."users" USING "btree" ("department");
 
 
 
 CREATE INDEX "idx_users_email" ON "public"."users" USING "btree" ("email");
+
+
+
+CREATE INDEX "idx_users_email_active" ON "public"."users" USING "btree" ("email", "is_active");
 
 
 
@@ -1615,6 +1940,18 @@ CREATE OR REPLACE TRIGGER "create_user_preferences_trigger" AFTER INSERT ON "pub
 
 
 
+CREATE OR REPLACE TRIGGER "log_admin_challenges_changes" AFTER INSERT OR DELETE OR UPDATE ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."trigger_log_admin_action"();
+
+
+
+CREATE OR REPLACE TRIGGER "log_admin_teams_changes" AFTER INSERT OR DELETE OR UPDATE ON "public"."teams" FOR EACH ROW EXECUTE FUNCTION "public"."trigger_log_admin_action"();
+
+
+
+CREATE OR REPLACE TRIGGER "log_admin_users_changes" AFTER INSERT OR DELETE OR UPDATE ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."trigger_log_admin_action"();
+
+
+
 CREATE OR REPLACE TRIGGER "on_point_transaction_created" AFTER INSERT ON "public"."point_transactions" FOR EACH ROW EXECUTE FUNCTION "public"."update_user_points"();
 
 
@@ -1647,12 +1984,21 @@ CREATE OR REPLACE TRIGGER "simple_on_user_action_approved" AFTER INSERT OR UPDAT
 
 
 
+CREATE OR REPLACE TRIGGER "trigger_log_challenge_creation" AFTER INSERT ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."log_challenge_creation"();
+
+
+
 CREATE OR REPLACE TRIGGER "trigger_update_user_level" BEFORE UPDATE OF "points" ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."update_user_level"();
 
 
 
 ALTER TABLE ONLY "public"."action_attachments"
     ADD CONSTRAINT "action_attachments_user_action_id_fkey" FOREIGN KEY ("user_action_id") REFERENCES "public"."user_actions"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."admin_activities"
+    ADD CONSTRAINT "admin_activities_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -1708,6 +2054,11 @@ ALTER TABLE ONLY "public"."password_resets"
 
 ALTER TABLE ONLY "public"."point_transactions"
     ADD CONSTRAINT "point_transactions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."security_audit_log"
+    ADD CONSTRAINT "security_audit_log_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id");
 
 
 
@@ -1781,13 +2132,45 @@ ALTER TABLE ONLY "public"."users"
 
 
 
+CREATE POLICY "Admins can create any challenge" ON "public"."challenges" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "Admins can insert admin activities" ON "public"."admin_activities" FOR INSERT WITH CHECK (((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) AND ("admin_id" = "auth"."uid"())));
+
+
+
+CREATE POLICY "Admins can view all admin activities" ON "public"."admin_activities" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))));
+
+
+
 CREATE POLICY "Admins can view all preferences" ON "public"."user_preferences" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."users"
   WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
 
 
+CREATE POLICY "Team members can create team challenges" ON "public"."challenges" FOR INSERT WITH CHECK ((("challenge_type" = 'team'::"text") AND ("created_by" = "auth"."uid"())));
+
+
+
+CREATE POLICY "Users can create individual challenges" ON "public"."challenges" FOR INSERT WITH CHECK ((("challenge_type" = 'individual'::"text") AND ("created_by" = "auth"."uid"())));
+
+
+
 CREATE POLICY "Users can insert their own preferences" ON "public"."user_preferences" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users can join challenges" ON "public"."challenge_participants" FOR INSERT WITH CHECK ((("user_id" = "auth"."uid"()) OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true))))));
 
 
 
@@ -1841,6 +2224,9 @@ CREATE POLICY "action_categories_update_admin" ON "public"."action_categories" F
 
 
 
+ALTER TABLE "public"."admin_activities" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."admin_audit_log" ENABLE ROW LEVEL SECURITY;
 
 
@@ -1892,9 +2278,17 @@ CREATE POLICY "challenges_delete_admin" ON "public"."challenges" FOR DELETE USIN
 
 
 
+CREATE POLICY "challenges_delete_admin_only" ON "public"."challenges" FOR DELETE USING ("public"."is_admin"());
+
+
+
 CREATE POLICY "challenges_insert_admin_or_creator" ON "public"."challenges" FOR INSERT WITH CHECK ((("auth"."uid"() = "created_by") OR ("auth"."uid"() IN ( SELECT "users"."id"
    FROM "public"."users"
   WHERE (("users"."is_admin" = true) AND ("users"."is_active" = true))))));
+
+
+
+CREATE POLICY "challenges_insert_restricted" ON "public"."challenges" FOR INSERT WITH CHECK ((("auth"."uid"() = "created_by") AND (("challenge_type" = 'individual'::"text") OR (("challenge_type" = 'team'::"text") AND "public"."is_team_member"()) OR (("challenge_type" = 'company'::"text") AND "public"."is_admin"()))));
 
 
 
@@ -1905,6 +2299,10 @@ CREATE POLICY "challenges_select_all" ON "public"."challenges" FOR SELECT USING 
 CREATE POLICY "challenges_update_admin_or_creator" ON "public"."challenges" FOR UPDATE USING ((("auth"."uid"() = "created_by") OR ("auth"."uid"() IN ( SELECT "users"."id"
    FROM "public"."users"
   WHERE (("users"."is_admin" = true) AND ("users"."is_active" = true))))));
+
+
+
+CREATE POLICY "challenges_update_secure" ON "public"."challenges" FOR UPDATE USING ((("auth"."uid"() = "created_by") OR "public"."is_admin"())) WITH CHECK ((("auth"."uid"() = "created_by") OR "public"."is_admin"()));
 
 
 
@@ -1938,7 +2336,11 @@ CREATE POLICY "content_items_update_admin" ON "public"."content_items" FOR UPDAT
 ALTER TABLE "public"."news_articles" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "news_articles_select_published" ON "public"."news_articles" FOR SELECT USING (("is_published" = true));
+CREATE POLICY "news_articles_admin_manage" ON "public"."news_articles" USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
+
+
+
+CREATE POLICY "news_articles_select_secure" ON "public"."news_articles" FOR SELECT USING ((("is_published" = true) OR "public"."is_admin"()));
 
 
 
@@ -1952,38 +2354,37 @@ CREATE POLICY "password_resets_select_own" ON "public"."password_resets" FOR SEL
 ALTER TABLE "public"."point_transactions" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "point_transactions_insert_own" ON "public"."point_transactions" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+CREATE POLICY "point_transactions_insert_system_only" ON "public"."point_transactions" FOR INSERT WITH CHECK (("public"."is_admin"() OR ("current_setting"('role'::"text") = 'service_role'::"text")));
 
 
 
-CREATE POLICY "point_transactions_select_own" ON "public"."point_transactions" FOR SELECT USING (("auth"."uid"() = "user_id"));
+CREATE POLICY "point_transactions_select_secure" ON "public"."point_transactions" FOR SELECT USING ((("auth"."uid"() = "user_id") OR "public"."is_admin"()));
+
+
+
+ALTER TABLE "public"."security_audit_log" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "security_audit_log_admin_only" ON "public"."security_audit_log" USING ("public"."is_admin"());
 
 
 
 ALTER TABLE "public"."sustainability_actions" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "sustainability_actions_delete_admin" ON "public"."sustainability_actions" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+CREATE POLICY "sustainability_actions_admin_delete" ON "public"."sustainability_actions" FOR DELETE USING ("public"."is_admin"());
 
 
 
-CREATE POLICY "sustainability_actions_insert_admin" ON "public"."sustainability_actions" FOR INSERT TO "authenticated" WITH CHECK ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+CREATE POLICY "sustainability_actions_admin_insert" ON "public"."sustainability_actions" FOR INSERT WITH CHECK ("public"."is_admin"());
+
+
+
+CREATE POLICY "sustainability_actions_admin_update" ON "public"."sustainability_actions" FOR UPDATE USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
 
 
 
 CREATE POLICY "sustainability_actions_select_all" ON "public"."sustainability_actions" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
-
-
-
-CREATE POLICY "sustainability_actions_update_admin" ON "public"."sustainability_actions" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
 
 
@@ -2020,18 +2421,18 @@ CREATE POLICY "system_settings_select_public" ON "public"."system_settings" FOR 
 
 
 
+CREATE POLICY "system_settings_select_public_or_admin" ON "public"."system_settings" FOR SELECT USING ((("is_public" = true) OR "public"."is_admin"()));
+
+
+
 ALTER TABLE "public"."team_members" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "team_members_delete_own_or_leader" ON "public"."team_members" FOR DELETE USING ((("auth"."uid"() = "user_id") OR ("auth"."uid"() IN ( SELECT "teams"."team_leader_id"
-   FROM "public"."teams"
-  WHERE ("teams"."id" = "team_members"."team_id")))));
+CREATE POLICY "team_members_delete_secure" ON "public"."team_members" FOR DELETE USING ((("auth"."uid"() = "user_id") OR "public"."is_team_leader"("auth"."uid"(), "team_id") OR "public"."is_admin"()));
 
 
 
-CREATE POLICY "team_members_insert_own_or_leader" ON "public"."team_members" FOR INSERT WITH CHECK ((("auth"."uid"() = "user_id") OR ("auth"."uid"() IN ( SELECT "teams"."team_leader_id"
-   FROM "public"."teams"
-  WHERE ("teams"."id" = "team_members"."team_id")))));
+CREATE POLICY "team_members_insert_secure" ON "public"."team_members" FOR INSERT WITH CHECK ((("auth"."uid"() = "user_id") OR "public"."is_team_leader"("auth"."uid"(), "team_id") OR "public"."is_admin"()));
 
 
 
@@ -2048,9 +2449,11 @@ CREATE POLICY "teams_delete_admin" ON "public"."teams" FOR DELETE USING (("auth"
 
 
 
-CREATE POLICY "teams_insert_admin_or_leader" ON "public"."teams" FOR INSERT WITH CHECK ((("auth"."uid"() = "team_leader_id") OR ("auth"."uid"() IN ( SELECT "users"."id"
-   FROM "public"."users"
-  WHERE (("users"."is_admin" = true) AND ("users"."is_active" = true))))));
+CREATE POLICY "teams_delete_admin_only" ON "public"."teams" FOR DELETE USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "teams_insert_secure" ON "public"."teams" FOR INSERT WITH CHECK (((("auth"."uid"() = "team_leader_id") AND ("auth"."role"() = 'authenticated'::"text")) OR "public"."is_admin"()));
 
 
 
@@ -2058,32 +2461,32 @@ CREATE POLICY "teams_select_all" ON "public"."teams" FOR SELECT USING (("auth"."
 
 
 
-CREATE POLICY "teams_update_admin_or_leader" ON "public"."teams" FOR UPDATE USING ((("auth"."uid"() = "team_leader_id") OR ("auth"."uid"() IN ( SELECT "users"."id"
-   FROM "public"."users"
-  WHERE (("users"."is_admin" = true) AND ("users"."is_active" = true))))));
-
-
-
 CREATE POLICY "teams_update_leader" ON "public"."teams" FOR UPDATE USING (("auth"."uid"() = "team_leader_id"));
+
+
+
+CREATE POLICY "teams_update_secure" ON "public"."teams" FOR UPDATE USING (("public"."is_team_leader"("auth"."uid"(), "id") OR "public"."is_admin"())) WITH CHECK (("public"."is_team_leader"("auth"."uid"(), "id") OR "public"."is_admin"()));
 
 
 
 ALTER TABLE "public"."user_actions" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "user_actions_insert_own" ON "public"."user_actions" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+CREATE POLICY "user_actions_delete_secure" ON "public"."user_actions" FOR DELETE USING (((("auth"."uid"() = "user_id") AND ("completed_at" > ("now"() - '01:00:00'::interval))) OR "public"."is_admin"()));
 
 
 
-CREATE POLICY "user_actions_select_own" ON "public"."user_actions" FOR SELECT USING (("auth"."uid"() = "user_id"));
+CREATE POLICY "user_actions_insert_secure" ON "public"."user_actions" FOR INSERT WITH CHECK ((("auth"."uid"() = "user_id") AND (( SELECT "count"(*) AS "count"
+   FROM "public"."user_actions" "user_actions_1"
+  WHERE (("user_actions_1"."user_id" = "auth"."uid"()) AND ("user_actions_1"."completed_at" > ("now"() - '01:00:00'::interval)))) < 20)));
 
 
 
-CREATE POLICY "user_actions_select_public" ON "public"."user_actions" FOR SELECT USING (("verification_status" = 'approved'::"text"));
+CREATE POLICY "user_actions_select_enhanced" ON "public"."user_actions" FOR SELECT USING ((("auth"."uid"() = "user_id") OR "public"."is_admin"() OR (("verification_status" = 'approved'::"text") AND ("auth"."role"() = 'authenticated'::"text"))));
 
 
 
-CREATE POLICY "user_actions_update_own" ON "public"."user_actions" FOR UPDATE USING (("auth"."uid"() = "user_id"));
+CREATE POLICY "user_actions_update_time_limited" ON "public"."user_actions" FOR UPDATE USING (((("auth"."uid"() = "user_id") AND ("completed_at" > ("now"() - '24:00:00'::interval))) OR "public"."is_admin"())) WITH CHECK (((("auth"."uid"() = "user_id") AND ("completed_at" > ("now"() - '24:00:00'::interval))) OR "public"."is_admin"()));
 
 
 
@@ -2101,7 +2504,7 @@ CREATE POLICY "user_analytics_select_own" ON "public"."user_analytics" FOR SELEC
 ALTER TABLE "public"."user_badges" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "user_badges_insert_own" ON "public"."user_badges" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+CREATE POLICY "user_badges_insert_system_only" ON "public"."user_badges" FOR INSERT WITH CHECK (("public"."is_admin"() OR ("current_setting"('role'::"text") = 'service_role'::"text")));
 
 
 
@@ -2136,9 +2539,15 @@ CREATE POLICY "users_delete_admin" ON "public"."users" FOR DELETE USING (("auth"
 
 
 
-CREATE POLICY "users_insert_admin_or_own" ON "public"."users" FOR INSERT WITH CHECK ((("auth"."uid"() = "id") OR ("auth"."uid"() IN ( SELECT "users_1"."id"
-   FROM "public"."users" "users_1"
-  WHERE (("users_1"."is_admin" = true) AND ("users_1"."is_active" = true))))));
+CREATE POLICY "users_delete_admin_only" ON "public"."users" FOR DELETE USING (("public"."is_admin"() AND ("id" <> "auth"."uid"())));
+
+
+
+CREATE POLICY "users_insert_secure" ON "public"."users" FOR INSERT WITH CHECK ((("auth"."uid"() = "id") OR "public"."is_admin"()));
+
+
+
+CREATE POLICY "users_select_limited_info" ON "public"."users" FOR SELECT USING ((("auth"."uid"() = "id") OR "public"."is_admin"() OR (("auth"."role"() = 'authenticated'::"text") AND ("is_active" = true))));
 
 
 
@@ -2146,17 +2555,11 @@ CREATE POLICY "users_select_own" ON "public"."users" FOR SELECT USING (("auth"."
 
 
 
-CREATE POLICY "users_select_public_info" ON "public"."users" FOR SELECT USING (true);
-
-
-
-CREATE POLICY "users_update_admin_or_own" ON "public"."users" FOR UPDATE USING ((("auth"."uid"() = "id") OR ("auth"."uid"() IN ( SELECT "users_1"."id"
-   FROM "public"."users" "users_1"
-  WHERE (("users_1"."is_admin" = true) AND ("users_1"."is_active" = true))))));
-
-
-
 CREATE POLICY "users_update_own" ON "public"."users" FOR UPDATE USING (("auth"."uid"() = "id"));
+
+
+
+CREATE POLICY "users_update_secure" ON "public"."users" FOR UPDATE USING (((("auth"."uid"() = "id") AND ("is_active" = true)) OR "public"."is_admin"())) WITH CHECK (((("auth"."uid"() = "id") AND ("is_active" = true)) OR "public"."is_admin"()));
 
 
 
@@ -2334,9 +2737,35 @@ GRANT ALL ON FUNCTION "public"."check_and_award_badges"() TO "service_role";
 
 
 
+REVOKE ALL ON FUNCTION "public"."check_privilege_escalation"() FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."check_privilege_escalation"() TO "anon";
+GRANT ALL ON FUNCTION "public"."check_privilege_escalation"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."check_privilege_escalation"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cleanup_expired_password_resets"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_expired_password_resets"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_expired_password_resets"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "anon";
 GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_user_preferences"() TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."detect_suspicious_activity"() FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."detect_suspicious_activity"() TO "anon";
+GRANT ALL ON FUNCTION "public"."detect_suspicious_activity"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."detect_suspicious_activity"() TO "service_role";
 
 
 
@@ -2364,9 +2793,39 @@ GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."is_admin"("user_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_admin"("user_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_admin"("user_uuid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_team_leader"("user_uuid" "uuid", "team_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_team_leader"("user_uuid" "uuid", "team_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_team_leader"("user_uuid" "uuid", "team_uuid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_team_member"("user_uuid" "uuid", "team_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_team_member"("user_uuid" "uuid", "team_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_team_member"("user_uuid" "uuid", "team_uuid" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p_action" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb") TO "anon";
 GRANT ALL ON FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p_action" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."log_admin_activity"("p_admin_user_id" "uuid", "p_action" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."log_challenge_creation"() TO "anon";
+GRANT ALL ON FUNCTION "public"."log_challenge_creation"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."log_challenge_creation"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") TO "service_role";
 
 
 
@@ -2379,6 +2838,12 @@ GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" 
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "anon";
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trigger_log_admin_action"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trigger_log_admin_action"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trigger_log_admin_action"() TO "service_role";
 
 
 
@@ -2436,6 +2901,12 @@ GRANT ALL ON TABLE "public"."action_attachments" TO "service_role";
 GRANT ALL ON TABLE "public"."action_categories" TO "anon";
 GRANT ALL ON TABLE "public"."action_categories" TO "authenticated";
 GRANT ALL ON TABLE "public"."action_categories" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_activities" TO "anon";
+GRANT ALL ON TABLE "public"."admin_activities" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_activities" TO "service_role";
 
 
 
@@ -2577,6 +3048,12 @@ GRANT ALL ON TABLE "public"."password_resets" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."security_audit_log" TO "anon";
+GRANT ALL ON TABLE "public"."security_audit_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."security_audit_log" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."system_settings" TO "anon";
 GRANT ALL ON TABLE "public"."system_settings" TO "authenticated";
 GRANT ALL ON TABLE "public"."system_settings" TO "service_role";
@@ -2672,5 +3149,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
+
+\unrestrict J73svcw47yFMQ6rzMrkgiM629jT5ir6mV8oUk51Q4bIr7yfgrJ63RUfhvIbF9tC
 
 RESET ALL;

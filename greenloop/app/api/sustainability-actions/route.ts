@@ -1,154 +1,163 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { sustainabilityActionSchema, paginationSchema } from "@/lib/validations/api"
+import { authenticateUser, requireAdmin, createErrorResponse, ApiException, sanitizeInput } from "@/lib/api-utils"
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    const { user, supabase } = await authenticateUser()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const { searchParams } = new URL(request.url)
+    const paginationResult = paginationSchema.safeParse({
+      page: searchParams.get("page"),
+      limit: searchParams.get("limit"),
+    })
 
-    // Get sustainability actions with categories
-    const { data: actions, error } = await supabase
-      .from("sustainability_actions")
-      .select(`
+    const { page, limit } = paginationResult.success ? paginationResult.data : { page: 1, limit: 20 }
+    const category = searchParams.get("category")
+    const active = searchParams.get("active")
+
+    let query = supabase.from("sustainability_actions").select(
+      `
         *,
         action_categories!inner(
           name,
           description,
           color
         )
-      `)
-      .order("created_at", { ascending: false })
+      `,
+      { count: "exact" },
+    )
+
+    // Apply filters
+    if (category) {
+      query = query.eq("action_categories.name", category)
+    }
+
+    if (active !== null) {
+      query = query.eq("is_active", active === "true")
+    }
+
+    // Apply pagination
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+
+    const { data: actions, error, count } = await query.range(from, to).order("created_at", { ascending: false })
 
     if (error) {
       console.error("Error fetching sustainability actions:", error)
-      return NextResponse.json({ error: "Failed to fetch actions" }, { status: 500 })
+      return createErrorResponse({
+        message: "Failed to fetch actions",
+        code: "DATABASE_ERROR",
+        status: 500,
+      })
     }
 
-    return NextResponse.json({ data: actions })
+    return NextResponse.json({
+      data: actions,
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
+    })
   } catch (error) {
+    if (error instanceof ApiException) {
+      return createErrorResponse(error.error)
+    }
+
     console.error("Unexpected error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return createErrorResponse({
+      message: "Internal server error",
+      code: "INTERNAL_ERROR",
+      status: 500,
+    })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    const { user, supabase } = await authenticateUser()
+    await requireAdmin(user.id, supabase)
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const rawBody = await request.json()
+    const sanitizedBody = sanitizeInput(rawBody)
+
+    const validationResult = sustainabilityActionSchema.safeParse(sanitizedBody)
+    if (!validationResult.success) {
+      return createErrorResponse({
+        message: "Invalid input data",
+        code: "VALIDATION_ERROR",
+        status: 400,
+      })
     }
 
-    const { data: userProfile } = await supabase.from("users").select("is_admin").eq("id", user.id).single()
+    const actionData = validationResult.data
 
-    if (!userProfile?.is_admin) {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
-    }
-
-    const body = await request.json()
-    const {
-      title,
-      description,
-      instructions,
-      category_id,
-      points_value,
-      co2_impact,
-      difficulty_level,
-      estimated_time_minutes,
-      verification_required,
-      is_active,
-    } = body
-
-    // Validate required fields
-    if (!title || !description || !category_id || !points_value || co2_impact === undefined) {
-      return NextResponse.json(
-        {
-          error: "Missing required fields: title, description, category_id, points_value, co2_impact",
-        },
-        { status: 400 },
-      )
-    }
-
-    // Validate data types and ranges
-    if (typeof points_value !== "number" || points_value < 1 || points_value > 1000) {
-      return NextResponse.json(
-        {
-          error: "Points value must be a number between 1 and 1000",
-        },
-        { status: 400 },
-      )
-    }
-
-    if (typeof co2_impact !== "number" || co2_impact < 0) {
-      return NextResponse.json(
-        {
-          error: "CO2 impact must be a non-negative number",
-        },
-        { status: 400 },
-      )
-    }
-
-    // Verify category exists
-    const { data: category } = await supabase
+    const { data: category, error: categoryError } = await supabase
       .from("action_categories")
-      .select("id")
-      .eq("id", category_id)
+      .select("id, name")
+      .eq("id", actionData.category_id)
       .eq("is_active", true)
       .single()
 
-    if (!category) {
-      return NextResponse.json({ error: "Invalid category ID" }, { status: 400 })
+    if (categoryError || !category) {
+      return createErrorResponse({
+        message: "Invalid or inactive category",
+        code: "INVALID_CATEGORY",
+        status: 400,
+      })
     }
 
-    const actionData = {
-      title: title.trim(),
-      description: description.trim(),
-      instructions: instructions?.trim() || null,
-      category_id,
-      points_value: Number(points_value),
-      co2_impact: Number(co2_impact),
-      difficulty_level: Number(difficulty_level) || 1,
-      estimated_time_minutes: estimated_time_minutes ? Number(estimated_time_minutes) : null,
-      verification_required: Boolean(verification_required),
-      is_active: Boolean(is_active),
+    const { data: existingAction } = await supabase
+      .from("sustainability_actions")
+      .select("id")
+      .eq("title", actionData.title)
+      .maybeSingle()
+
+    if (existingAction) {
+      return createErrorResponse({
+        message: "An action with this title already exists",
+        code: "DUPLICATE_TITLE",
+        status: 409,
+      })
     }
 
     const { data: newAction, error: insertError } = await supabase
       .from("sustainability_actions")
       .insert([actionData])
-      .select()
+      .select(`
+        *,
+        action_categories(name, description, color)
+      `)
       .single()
 
     if (insertError) {
       console.error("Error creating sustainability action:", insertError)
-      return NextResponse.json({ error: "Failed to create action" }, { status: 500 })
+      return createErrorResponse({
+        message: "Failed to create action",
+        code: "DATABASE_ERROR",
+        status: 500,
+      })
     }
 
-    // Log admin activity
-    await supabase.rpc("log_admin_activity", {
-      p_admin_user_id: user.id,
-      p_action: "sustainability_action_created",
-      p_resource_type: "sustainability_actions",
-      p_resource_id: newAction.id,
-      p_details: {
-        title: actionData.title,
-        category_id: actionData.category_id,
-        points_value: actionData.points_value,
-      },
-    })
+    try {
+      await supabase.rpc("log_admin_activity", {
+        p_admin_user_id: user.id,
+        p_action: "sustainability_action_created",
+        p_resource_type: "sustainability_actions",
+        p_resource_id: newAction.id,
+        p_details: {
+          title: actionData.title,
+          category: category.name,
+          points_value: actionData.points_value,
+          co2_impact: actionData.co2_impact,
+        },
+      })
+    } catch (logError) {
+      console.error("Failed to log admin activity:", logError)
+      // Don't fail the request for logging issues
+    }
 
     return NextResponse.json(
       {
@@ -158,7 +167,15 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     )
   } catch (error) {
+    if (error instanceof ApiException) {
+      return createErrorResponse(error.error)
+    }
+
     console.error("Unexpected error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return createErrorResponse({
+      message: "Internal server error",
+      code: "INTERNAL_ERROR",
+      status: 500,
+    })
   }
 }
