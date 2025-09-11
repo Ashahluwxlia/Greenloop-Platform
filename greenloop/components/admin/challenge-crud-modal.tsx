@@ -459,7 +459,7 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                       <Input
                         type="number"
                         min="0"
-                        disabled={challengeType === "individual"}
+                        disabled={challengeType === "individual" || challengeType === "team"}
                         placeholder={challengeType === "individual" ? "0 (Personal)" : "Enter points"}
                         {...field}
                         value={challengeType === "individual" ? 0 : field.value}
@@ -471,6 +471,11 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                     {challengeType === "individual" && (
                       <FormDescription className="text-xs text-muted-foreground">
                         Personal challenges cannot have reward points
+                      </FormDescription>
+                    )}
+                    {challengeType === "team" && (
+                      <FormDescription className="text-xs text-muted-foreground">
+                        Team challenges cannot have reward points
                       </FormDescription>
                     )}
                     <FormMessage />
@@ -504,13 +509,25 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                       <Input
                         type="number"
                         min="1"
-                        disabled={challengeType === "individual"}
-                        placeholder={challengeType === "individual" ? "1 (Personal)" : "Leave empty for unlimited"}
+                        disabled={challengeType === "individual" || challengeType === "team"}
+                        placeholder={
+                          challengeType === "individual"
+                            ? "1 (Personal)"
+                            : challengeType === "team"
+                              ? "All team members"
+                              : "Leave empty for unlimited"
+                        }
                         {...field}
-                        value={challengeType === "individual" ? 1 : field.value || ""}
+                        value={challengeType === "individual" ? 1 : challengeType === "team" ? "" : field.value || ""}
                         onChange={(e) =>
                           field.onChange(
-                            challengeType === "individual" ? 1 : e.target.value ? Number(e.target.value) : undefined,
+                            challengeType === "individual"
+                              ? 1
+                              : challengeType === "team"
+                                ? undefined
+                                : e.target.value
+                                  ? Number(e.target.value)
+                                  : undefined,
                           )
                         }
                       />
@@ -518,6 +535,11 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
                     {challengeType === "individual" && (
                       <FormDescription className="text-xs text-muted-foreground">
                         Personal challenges are limited to 1 participant (yourself)
+                      </FormDescription>
+                    )}
+                    {challengeType === "team" && (
+                      <FormDescription className="text-xs text-muted-foreground">
+                        Team challenges automatically include all team members
                       </FormDescription>
                     )}
                     <FormMessage />
