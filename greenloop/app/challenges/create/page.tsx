@@ -48,26 +48,82 @@ export default function CreateChallengePage() {
     formState: { errors, isSubmitting },
   } = form
   const challengeType = watch("challengeType")
-  const selectedTeamId = watch("teamId")
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser()
+        if (userError || !userData?.user) {
+          router.push("/auth/login")
+          return
+        }
+
+        // Get user profile
+        const { data: userProfile } = await supabase.from("users").select("*").eq("id", userData.user.id).single()
+        setUser(userProfile)
+
+        const teamsQuery = supabase.from("admin_team_stats").select("id, name, current_members").eq("is_active", true)
+
+        // If user is admin, fetch all teams; otherwise, fetch only user's teams
+        if (userProfile?.is_admin) {
+          // Admin can see all teams
+          const { data: allTeams } = await teamsQuery
+          setUserTeams(allTeams || [])
+        } else {
+          // Regular users see only their teams
+          const { data: userTeamMemberships } = await supabase
+            .from("team_members")
+            .select(`
+              team_id,
+              teams!inner (
+                id, 
+                name,
+                is_active
+              )
+            `)
+            .eq("user_id", userData.user.id)
+            .eq("teams.is_active", true)
+
+          // Get the team IDs the user is part of
+          const userTeamIds = userTeamMemberships?.map((tm) => tm.team_id) || []
+
+          if (userTeamIds.length > 0) {
+            // Fetch team stats for user's teams
+            const { data: userTeams } = await supabase
+              .from("admin_team_stats")
+              .select("id, name, current_members")
+              .in("id", userTeamIds)
+              .eq("is_active", true)
+
+            setUserTeams(userTeams || [])
+          } else {
+            setUserTeams([])
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load data:", err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadData()
+  }, [router, supabase])
 
   const getAvailableChallengeTypes = () => {
     const types = [{ value: "individual", label: "Personal Challenge" }]
 
+    // Add team challenges if user is part of any team
     if (userTeams.length > 0) {
       types.push({ value: "team", label: "Team Challenge" })
     }
 
+    // Add company-wide challenges if user is admin
     if (user?.is_admin) {
       types.push({ value: "company", label: "Company-wide Challenge" })
     }
 
     return types
-  }
-
-  const getSelectedTeamMemberCount = () => {
-    if (!selectedTeamId) return 0
-    const selectedTeam = userTeams.find((team) => team.id === selectedTeamId)
-    return selectedTeam?.team_members?.length || 0
   }
 
   const onSubmit = async (data: ChallengeFormData) => {
@@ -100,6 +156,7 @@ export default function CreateChallengePage() {
 
       if (!response.ok) {
         if (result.details) {
+          // Handle validation errors from server
           Object.entries(result.details).forEach(([field, messages]) => {
             form.setError(field as keyof ChallengeFormData, {
               message: Array.isArray(messages) ? messages[0] : (messages as string),
@@ -121,58 +178,6 @@ export default function CreateChallengePage() {
       })
     }
   }
-
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const { data: userData, error: userError } = await supabase.auth.getUser()
-        if (userError || !userData?.user) {
-          router.push("/auth/login")
-          return
-        }
-
-        const { data: userProfile } = await supabase.from("users").select("*").eq("id", userData.user.id).single()
-        setUser(userProfile)
-
-        const teamsQuery = supabase
-          .from("teams")
-          .select(`
-            id, 
-            name,
-            team_members (
-              user_id
-            )
-          `)
-          .eq("is_active", true)
-
-        if (userProfile?.is_admin) {
-          const { data: allTeams } = await teamsQuery
-          setUserTeams(allTeams || [])
-        } else {
-          const { data: userTeamMemberships } = await supabase
-            .from("team_members")
-            .select(`
-              teams (
-                id, 
-                name,
-                team_members (
-                  user_id
-                )
-              )
-            `)
-            .eq("user_id", userData.user.id)
-
-          setUserTeams(userTeamMemberships?.map((tm) => tm.teams).filter(Boolean) || [])
-        }
-      } catch (err) {
-        console.error("Failed to load data:", err)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadData()
-  }, [router, supabase])
 
   if (isLoading) {
     return (
@@ -224,6 +229,7 @@ export default function CreateChallengePage() {
 
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="space-y-6">
+          {/* Back Button */}
           <Button variant="ghost" asChild className="mb-4">
             <Link href="/challenges">
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -231,6 +237,7 @@ export default function CreateChallengePage() {
             </Link>
           </Button>
 
+          {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-balance mb-2 flex items-center gap-3">
               <Trophy className="h-8 w-8 text-primary" />
@@ -278,22 +285,26 @@ export default function CreateChallengePage() {
                             Challenge Type <span className="text-destructive">*</span>
                           </FormLabel>
                           <Select
-                            onValueChange={(value) => {
+                            onValueChange={async (value) => {
                               field.onChange(value)
                               if (value === "individual") {
                                 form.setValue("maxParticipants", 1)
                                 form.setValue("rewardPoints", 0)
-                              } else {
-                                if (value === "team") {
-                                  const teamMemberCount = getSelectedTeamMemberCount()
-                                  form.setValue("maxParticipants", teamMemberCount || undefined)
-                                } else {
-                                  form.setValue("maxParticipants", undefined)
+                                form.setValue("teamId", undefined)
+                              } else if (value === "team") {
+                                const selectedTeamId = form.getValues("teamId")
+                                if (selectedTeamId) {
+                                  const selectedTeam = userTeams.find((team) => team.id === selectedTeamId)
+                                  const teamMemberCount = selectedTeam?.current_members || 0
+                                  form.setValue("maxParticipants", teamMemberCount)
                                 }
+                                form.setValue("rewardPoints", 100)
+                              } else {
+                                form.setValue("maxParticipants", undefined)
                                 form.setValue("rewardPoints", 100)
                               }
                             }}
-                            defaultValue={field.value?.toString()}
+                            value={field.value}
                           >
                             <FormControl>
                               <SelectTrigger>
@@ -327,10 +338,10 @@ export default function CreateChallengePage() {
                             onValueChange={(value) => {
                               field.onChange(value)
                               const selectedTeam = userTeams.find((team) => team.id === value)
-                              const teamMemberCount = selectedTeam?.team_members?.length || 0
+                              const teamMemberCount = selectedTeam?.current_members || 0
                               form.setValue("maxParticipants", teamMemberCount)
                             }}
-                            defaultValue={field.value?.toString()}
+                            value={field.value}
                           >
                             <FormControl>
                               <SelectTrigger>
@@ -340,7 +351,7 @@ export default function CreateChallengePage() {
                             <SelectContent>
                               {userTeams.map((team) => (
                                 <SelectItem key={team.id} value={team.id}>
-                                  {team.name}
+                                  {team.name} ({team.current_members || 0} members)
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -528,18 +539,7 @@ export default function CreateChallengePage() {
                             <Input
                               type="number"
                               min="1"
-                              placeholder={
-                                challengeType === "individual"
-                                  ? "1 (Personal)"
-                                  : challengeType === "team"
-                                    ? "All team members"
-                                    : "Leave empty for unlimited"
-                              }
-                              value={
-                                challengeType === "team" && selectedTeamId
-                                  ? getSelectedTeamMemberCount().toString()
-                                  : field.value?.toString() || ""
-                              }
+                              placeholder="Leave empty for unlimited"
                               disabled={challengeType === "individual" || challengeType === "team"}
                               {...field}
                               onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : undefined)}
