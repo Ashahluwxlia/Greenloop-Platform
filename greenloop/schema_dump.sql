@@ -1,5 +1,5 @@
 
-\restrict 1aOdyhaCtlddpbAerK8TTYFqikeUk3LflhlPLuwzbWPc4qwWG0heAKHEIxl36p3
+\restrict 4BxDmlBxW9oSc28XhJqjtBl68KfRGDEqqsb5rWoesWktwWMS53KCCifmGvWiBdf
 
 
 SET statement_timeout = 0;
@@ -324,26 +324,29 @@ CREATE OR REPLACE FUNCTION "public"."create_team_challenge_participants"("p_chal
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 BEGIN
-  -- Delete any existing participants for this challenge
-  DELETE FROM challenge_participants 
-  WHERE challenge_id = p_challenge_id;
-  
-  -- Insert a single team participant record (not individual user records)
-  INSERT INTO challenge_participants (
-    challenge_id,
-    user_id,
-    team_id,
-    current_progress,
-    completed,
-    joined_at
-  ) VALUES (
-    p_challenge_id,
-    NULL,
-    p_team_id,
-    0,
-    false,
-    NOW()
-  );
+    -- Insert individual user records for each team member
+    INSERT INTO challenge_participants (
+        challenge_id,
+        user_id,
+        team_id,
+        current_progress,
+        completed,
+        joined_at
+    )
+    SELECT 
+        p_challenge_id,
+        tm.user_id,
+        p_team_id,
+        0,
+        false,
+        NOW()
+    FROM team_members tm
+    JOIN teams t ON tm.team_id = t.id
+    JOIN users u ON tm.user_id = u.id
+    WHERE tm.team_id = p_team_id
+    AND t.is_active = true
+    AND u.is_active = true
+    ON CONFLICT (challenge_id, user_id) DO NOTHING;
 END;
 $$;
 
@@ -1505,7 +1508,7 @@ CREATE TABLE IF NOT EXISTS "public"."challenge_participants" (
     "completed" boolean DEFAULT false,
     "completed_at" timestamp with time zone,
     "joined_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "challenge_participants_check" CHECK (((("user_id" IS NOT NULL) AND ("team_id" IS NULL)) OR (("user_id" IS NULL) AND ("team_id" IS NOT NULL))))
+    CONSTRAINT "challenge_participants_check" CHECK (("user_id" IS NOT NULL))
 );
 
 
@@ -2180,6 +2183,11 @@ ALTER TABLE ONLY "public"."challenge_activity_log"
 
 ALTER TABLE ONLY "public"."challenge_participants"
     ADD CONSTRAINT "challenge_participants_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."challenge_participants"
+    ADD CONSTRAINT "challenge_participants_unique_participation" UNIQUE ("challenge_id", "user_id");
 
 
 
@@ -2941,15 +2949,46 @@ CREATE POLICY "challenge_activity_select_enhanced" ON "public"."challenge_activi
 ALTER TABLE "public"."challenge_participants" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "challenge_participants_delete_simple" ON "public"."challenge_participants" FOR DELETE USING (((NOT (EXISTS ( SELECT 1
+   FROM "public"."challenges" "c"
+  WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."challenge_type" = 'team'::"text"))))) AND (("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))))));
+
+
+
+CREATE POLICY "challenge_participants_insert_proper" ON "public"."challenge_participants" FOR INSERT WITH CHECK (((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true))))) AND (EXISTS ( SELECT 1
+   FROM "public"."challenges" "c"
+  WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."is_active" = true) AND ("c"."end_date" > "now"())))) AND ((EXISTS ( SELECT 1
+   FROM "public"."challenges" "c"
+  WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."challenge_type" = 'individual'::"text") AND ("c"."created_by" = "auth"."uid"()) AND ("auth"."uid"() = "challenge_participants"."user_id")))) OR (EXISTS ( SELECT 1
+   FROM "public"."challenges" "c"
+  WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."challenge_type" = 'company'::"text")))) OR ((EXISTS ( SELECT 1
+   FROM "public"."challenges" "c"
+  WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."challenge_type" = 'team'::"text")))) AND ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR (EXISTS ( SELECT 1
+   FROM ("public"."team_members" "tm"
+     JOIN "public"."users" "u" ON (("tm"."user_id" = "u"."id")))
+  WHERE (("tm"."user_id" = "tm"."user_id") AND ("u"."is_active" = true)))))))));
+
+
+
 CREATE POLICY "challenge_participants_join_safe" ON "public"."challenge_participants" FOR INSERT WITH CHECK ((("auth"."uid"() = "user_id") AND (EXISTS ( SELECT 1
    FROM "public"."challenges" "c"
   WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."is_active" = true) AND ("c"."end_date" > "now"()) AND (("c"."challenge_type" = ANY (ARRAY['team'::"text", 'company'::"text"])) OR (("c"."challenge_type" = 'individual'::"text") AND ("c"."created_by" = "auth"."uid"()))))))));
 
 
 
-CREATE POLICY "challenge_participants_leave_final" ON "public"."challenge_participants" FOR DELETE USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
+CREATE POLICY "challenge_participants_select" ON "public"."challenge_participants" FOR SELECT USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR "public"."can_leave_team_challenge"("user_id", "challenge_id")));
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR (EXISTS ( SELECT 1
+   FROM (("public"."challenges" "c"
+     JOIN "public"."team_members" "tm1" ON (("tm1"."user_id" = "auth"."uid"())))
+     JOIN "public"."team_members" "tm2" ON (("tm2"."user_id" = "challenge_participants"."user_id")))
+  WHERE (("c"."id" = "challenge_participants"."challenge_id") AND ("c"."challenge_type" = 'team'::"text") AND ("tm1"."team_id" = "tm2"."team_id"))))));
 
 
 
@@ -3016,11 +3055,9 @@ CREATE POLICY "challenges_delete_admin" ON "public"."challenges" FOR DELETE USIN
 
 
 
-CREATE POLICY "challenges_delete_enhanced" ON "public"."challenges" FOR DELETE USING (((EXISTS ( SELECT 1
+CREATE POLICY "challenges_delete_simple" ON "public"."challenges" FOR DELETE USING (((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR (("auth"."uid"() = "created_by") AND ("challenge_type" = 'individual'::"text") AND (NOT (EXISTS ( SELECT 1
-   FROM "public"."challenge_participants"
-  WHERE (("challenge_participants"."challenge_id" = "challenges"."id") AND ("challenge_participants"."user_id" <> "auth"."uid"()))))))));
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR ("created_by" = "auth"."uid"())));
 
 
 
@@ -3030,13 +3067,15 @@ CREATE POLICY "challenges_insert_admin_or_creator" ON "public"."challenges" FOR 
 
 
 
-CREATE POLICY "challenges_select_all" ON "public"."challenges" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
-
-
-
-CREATE POLICY "challenges_select_enhanced" ON "public"."challenges" FOR SELECT USING ((("challenge_type" = ANY (ARRAY['team'::"text", 'company'::"text"])) OR (("challenge_type" = 'individual'::"text") AND ("created_by" = "auth"."uid"())) OR (EXISTS ( SELECT 1
+CREATE POLICY "challenges_select_proper" ON "public"."challenges" FOR SELECT USING ((("challenge_type" = 'company'::"text") OR (("challenge_type" = 'team'::"text") AND ((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true))))));
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) OR (EXISTS ( SELECT 1
+   FROM (("public"."team_members" "tm"
+     JOIN "public"."teams" "t" ON (("tm"."team_id" = "t"."id")))
+     JOIN "public"."users" "u" ON (("tm"."user_id" = "u"."id")))
+  WHERE (("tm"."user_id" = "auth"."uid"()) AND ("t"."is_active" = true) AND ("u"."is_active" = true) AND ("t"."id" = "tm"."team_id")))))) OR (("challenge_type" = 'individual'::"text") AND (("created_by" = "auth"."uid"()) OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true))))))));
 
 
 
@@ -4014,6 +4053,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict 1aOdyhaCtlddpbAerK8TTYFqikeUk3LflhlPLuwzbWPc4qwWG0heAKHEIxl36p3
+\unrestrict 4BxDmlBxW9oSc28XhJqjtBl68KfRGDEqqsb5rWoesWktwWMS53KCCifmGvWiBdf
 
 RESET ALL;
