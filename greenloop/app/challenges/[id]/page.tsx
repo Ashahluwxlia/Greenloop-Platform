@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CalendarIcon, Trophy, Users, Clock, Award, TrendingUp, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { ChallengeActions } from "@/components/challenge-actions"
+import { ChallengeDeleteButton } from "@/components/challenge-delete-button"
 
 interface ChallengeParticipant {
   id: string
@@ -28,6 +29,7 @@ interface ChallengeParticipant {
     name: string
     team_members: {
       user_id: string
+      role: string
       users: {
         first_name: string
         last_name: string
@@ -121,6 +123,10 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     .from("challenges")
     .select(`
       *,
+      creator:users!challenges_created_by_fkey (
+        first_name,
+        last_name
+      ),
       challenge_participants (
         id,
         user_id,
@@ -133,6 +139,7 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
           name,
           team_members (
             user_id,
+            role,
             users (first_name, last_name)
           )
         )
@@ -143,6 +150,44 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
 
   if (!challenge) {
     redirect("/challenges")
+  }
+
+  let canDelete = false
+
+  if (userProfile?.is_admin) {
+    // Admins can delete any challenge
+    canDelete = true
+  } else if (challenge.challenge_type === "individual" && challenge.created_by === data.user.id) {
+    // Users can delete their own personal challenges
+    canDelete = true
+  } else if (challenge.challenge_type === "team") {
+    // Check if user is team leader for team challenges
+    const teamParticipant = challenge.challenge_participants?.find((p: any) => p.team_id && p.teams)
+
+    if (teamParticipant?.teams?.team_members) {
+      const userTeamMember = teamParticipant.teams.team_members.find((member: any) => member.user_id === data.user.id)
+
+      if (userTeamMember?.role === "leader") {
+        canDelete = true
+      }
+    }
+  }
+
+  if (challenge.challenge_type === "team" && !userProfile?.is_admin) {
+    // Get user's team memberships
+    const { data: userTeamMembership } = await supabase
+      .from("team_members")
+      .select("team_id")
+      .eq("user_id", data.user.id)
+
+    const userTeamIds = userTeamMembership?.map((tm) => tm.team_id) || []
+
+    // Check if user is in the challenge's team
+    const teamParticipant = challenge.challenge_participants?.find((p: any) => p.team_id && p.teams)
+
+    if (teamParticipant && !userTeamIds.includes(teamParticipant.team_id)) {
+      redirect("/challenges")
+    }
   }
 
   const { data: userParticipation } = await supabase
@@ -189,27 +234,54 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     .order("created_at", { ascending: false })
     .limit(15)
 
-  const { data: recentActions } = await supabase
-    .from("user_actions")
-    .select(`
-      *,
-      users (first_name, last_name),
-      sustainability_actions (
-        title, 
-        points_value,
-        co2_impact,
-        action_categories (name)
+  let recentActions
+  if (challenge.challenge_type === "company") {
+    // For company challenges, show all approved actions from all users
+    const { data: allCompanyActions } = await supabase
+      .from("user_actions")
+      .select(`
+        *,
+        users (first_name, last_name),
+        sustainability_actions (
+          title, 
+          points_value,
+          co2_impact,
+          action_categories (name)
+        )
+      `)
+      .gte("completed_at", challenge.start_date)
+      .lte("completed_at", challenge.end_date + "T23:59:59")
+      .eq("verification_status", "approved")
+      .order("completed_at", { ascending: false })
+      .limit(20)
+
+    recentActions = allCompanyActions
+  } else {
+    // For team and individual challenges, show actions from participants only
+    const { data: participantActions } = await supabase
+      .from("user_actions")
+      .select(`
+        *,
+        users (first_name, last_name),
+        sustainability_actions (
+          title, 
+          points_value,
+          co2_impact,
+          action_categories (name)
+        )
+      `)
+      .in(
+        "user_id",
+        (challenge.challenge_participants as ChallengeParticipant[])?.map((p: ChallengeParticipant) => p.user_id) || [],
       )
-    `)
-    .in(
-      "user_id",
-      (challenge.challenge_participants as ChallengeParticipant[])?.map((p: ChallengeParticipant) => p.user_id) || [],
-    )
-    .gte("completed_at", challenge.start_date)
-    .lte("completed_at", challenge.end_date + "T23:59:59")
-    .eq("verification_status", "approved")
-    .order("completed_at", { ascending: false })
-    .limit(10)
+      .gte("completed_at", challenge.start_date)
+      .lte("completed_at", challenge.end_date + "T23:59:59")
+      .eq("verification_status", "approved")
+      .order("completed_at", { ascending: false })
+      .limit(10)
+
+    recentActions = participantActions
+  }
 
   console.log("[v0] Challenge activities:", challengeActivities)
   console.log("[v0] Recent actions raw:", recentActions)
@@ -322,6 +394,28 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     }
   }
 
+  let canJoinLeave = true
+
+  if (userProfile?.is_admin) {
+    if (challenge.challenge_type === "individual") {
+      // Admins cannot join/leave personal challenges of other users
+      canJoinLeave = challenge.created_by === data.user.id
+    } else if (challenge.challenge_type === "team") {
+      // Check if admin is part of the team for team challenges
+      const { data: userTeamMembership } = await supabase
+        .from("team_members")
+        .select("team_id")
+        .eq("user_id", data.user.id)
+
+      const userTeamIds = userTeamMembership?.map((tm) => tm.team_id) || []
+      const teamParticipant = challenge.challenge_participants?.find((p: any) => p.team_id && p.teams)
+
+      if (teamParticipant && !userTeamIds.includes(teamParticipant.team_id)) {
+        canJoinLeave = false
+      }
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation user={userProfile} />
@@ -341,18 +435,36 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
           <div className="flex items-start justify-between mb-4">
             <div>
               <h1 className="text-3xl font-bold text-balance mb-2">{challenge.title}</h1>
+              {challenge.challenge_type === "individual" && userProfile?.is_admin && challenge.creator && (
+                <p className="text-sm text-muted-foreground mb-2">
+                  Created by: {challenge.creator.first_name} {challenge.creator.last_name}
+                </p>
+              )}
               <p className="text-muted-foreground text-pretty max-w-2xl">{challenge.description}</p>
             </div>
-            <ChallengeActions
-              challengeId={challenge.id}
-              isParticipating={!!userParticipation}
-              isCompleted={userProgressData?.completed || false}
-              challengeEnded={daysLeft === 0}
-              challengeType={challenge.challenge_type}
-              userProgress={userProgressData?.current_progress || 0}
-              targetValue={challenge.target_value}
-              targetMetric={challenge.target_metric}
-            />
+            <div className="flex flex-col gap-3">
+              <ChallengeActions
+                challengeId={challenge.id}
+                isParticipating={!!userParticipation}
+                isCompleted={userProgressData?.completed || false}
+                challengeEnded={daysLeft === 0}
+                challengeType={challenge.challenge_type}
+                userProgress={userProgressData?.current_progress || 0}
+                targetValue={challenge.target_value}
+                targetMetric={challenge.target_metric}
+                canJoinLeave={canJoinLeave}
+              />
+              {canDelete && (
+                <ChallengeDeleteButton
+                  challengeId={challenge.id}
+                  challengeTitle={challenge.title}
+                  challengeType={challenge.challenge_type}
+                  canDelete={canDelete}
+                  variant="destructive"
+                  size="sm"
+                />
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-4 items-center">
@@ -524,10 +636,10 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                     combinedActivities.map((activity) => (
                       <div
                         key={`${activity.type}-${activity.id}`}
-                        className="flex items-center justify-between p-4 rounded-lg border"
+                        className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/30 transition-colors"
                       >
                         <div className="flex items-center gap-4">
-                          <Avatar>
+                          <Avatar className="h-10 w-10">
                             <AvatarFallback>
                               {activity.user?.first_name?.[0]}
                               {activity.user?.last_name?.[0]}
@@ -550,9 +662,17 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                                     🏆 Challenge Completed!
                                   </Badge>
                                 )}
+                                {activity.activity_type === "joined_challenge" && (
+                                  <Badge variant="outline" className="mt-1 text-xs">
+                                    👋 Joined Challenge
+                                  </Badge>
+                                )}
                               </div>
                             ) : (
-                              <p className="text-sm text-muted-foreground">{activity.action?.title}</p>
+                              <div>
+                                <p className="text-sm text-muted-foreground">Completed: {activity.action?.title}</p>
+                                <p className="text-xs text-muted-foreground">Challenge-related sustainability action</p>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -563,7 +683,7 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                                 <p className="font-bold text-primary">+{activity.metadata.points_earned} pts</p>
                               )}
                               {activity.metadata?.co2_saved && (
-                                <p className="text-sm text-green-600">-{activity.metadata.co2_saved} kg CO2</p>
+                                <p className="text-sm text-green-600">-{activity.metadata.co2_saved} kg CO₂</p>
                               )}
                               {activity.metadata?.new_progress && (
                                 <p className="text-sm text-blue-600">
@@ -576,7 +696,7 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                             <div className="space-y-1">
                               <p className="font-bold text-primary">+{activity.action?.points_value} pts</p>
                               {activity.action?.co2_impact && (
-                                <p className="text-sm text-green-600">-{activity.action.co2_impact} kg CO2</p>
+                                <p className="text-sm text-green-600">-{activity.action.co2_impact} kg CO₂</p>
                               )}
                             </div>
                           )}
@@ -587,7 +707,15 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                       </div>
                     ))
                   ) : (
-                    <p className="text-muted-foreground text-center py-8">No challenge-related activity yet</p>
+                    <div className="text-center py-8">
+                      <div className="mx-auto w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4">
+                        <Trophy className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                      <p className="text-muted-foreground font-medium">No challenge activity yet</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Activity will appear here as participants complete actions and reach milestones
+                      </p>
+                    </div>
                   )}
                 </div>
               </CardContent>
