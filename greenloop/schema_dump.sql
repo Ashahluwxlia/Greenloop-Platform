@@ -1,5 +1,5 @@
 
-\restrict 4BxDmlBxW9oSc28XhJqjtBl68KfRGDEqqsb5rWoesWktwWMS53KCCifmGvWiBdf
+\restrict hdMbiz7mQ6AO3oIKp2UeAfLtkAYy0zoFBemJNUChbbI4ckwicrwd35Dpgciyvg5
 
 
 SET statement_timeout = 0;
@@ -324,7 +324,7 @@ CREATE OR REPLACE FUNCTION "public"."create_team_challenge_participants"("p_chal
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 BEGIN
-    -- Insert individual user records for each team member
+    -- Insert individual user records for each team member (including leaders)
     INSERT INTO challenge_participants (
         challenge_id,
         user_id,
@@ -333,7 +333,7 @@ BEGIN
         completed,
         joined_at
     )
-    SELECT 
+    SELECT DISTINCT
         p_challenge_id,
         tm.user_id,
         p_team_id,
@@ -346,6 +346,24 @@ BEGIN
     WHERE tm.team_id = p_team_id
     AND t.is_active = true
     AND u.is_active = true
+    
+    UNION
+    
+    -- Also ensure team leader is included (in case they're not in team_members)
+    SELECT DISTINCT
+        p_challenge_id,
+        t.team_leader_id,
+        p_team_id,
+        0,
+        false,
+        NOW()
+    FROM teams t
+    JOIN users u ON t.team_leader_id = u.id
+    WHERE t.id = p_team_id
+    AND t.team_leader_id IS NOT NULL
+    AND t.is_active = true
+    AND u.is_active = true
+    
     ON CONFLICT (challenge_id, user_id) DO NOTHING;
 END;
 $$;
@@ -392,6 +410,25 @@ $$;
 
 
 ALTER FUNCTION "public"."detect_suspicious_activity"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."ensure_team_leader_in_members"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    -- When a team is created or team_leader_id is updated
+    IF NEW.team_leader_id IS NOT NULL THEN
+        INSERT INTO team_members (team_id, user_id, role, joined_at)
+        VALUES (NEW.id, NEW.team_leader_id, 'leader', COALESCE(NEW.created_at, NOW()))
+        ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'leader';
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."ensure_team_leader_in_members"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_recent_admin_activities"("p_limit" integer DEFAULT 50) RETURNS TABLE("id" "uuid", "admin_name" "text", "action" character varying, "resource_type" character varying, "resource_id" "uuid", "details" "jsonb", "created_at" timestamp with time zone)
@@ -2616,6 +2653,10 @@ CREATE OR REPLACE TRIGGER "create_user_preferences_trigger" AFTER INSERT ON "pub
 
 
 
+CREATE OR REPLACE TRIGGER "ensure_team_leader_trigger" AFTER INSERT OR UPDATE OF "team_leader_id" ON "public"."teams" FOR EACH ROW EXECUTE FUNCTION "public"."ensure_team_leader_in_members"();
+
+
+
 CREATE OR REPLACE TRIGGER "log_admin_challenges_changes" AFTER INSERT OR DELETE OR UPDATE ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."trigger_log_admin_action"();
 
 
@@ -3618,6 +3659,12 @@ GRANT ALL ON FUNCTION "public"."detect_suspicious_activity"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."ensure_team_leader_in_members"() TO "anon";
+GRANT ALL ON FUNCTION "public"."ensure_team_leader_in_members"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."ensure_team_leader_in_members"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "service_role";
@@ -4053,6 +4100,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict 4BxDmlBxW9oSc28XhJqjtBl68KfRGDEqqsb5rWoesWktwWMS53KCCifmGvWiBdf
+\unrestrict hdMbiz7mQ6AO3oIKp2UeAfLtkAYy0zoFBemJNUChbbI4ckwicrwd35Dpgciyvg5
 
 RESET ALL;

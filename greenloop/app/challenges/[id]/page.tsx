@@ -162,13 +162,17 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     canDelete = true
   } else if (challenge.challenge_type === "team") {
     // Check if user is team leader for team challenges
-    const teamParticipant = challenge.challenge_participants?.find((p: any) => p.team_id && p.teams)
+    const teamParticipants = challenge.challenge_participants?.filter((p: any) => p.team_id && p.teams) || []
 
-    if (teamParticipant?.teams?.team_members) {
-      const userTeamMember = teamParticipant.teams.team_members.find((member: any) => member.user_id === data.user.id)
-
-      if (userTeamMember?.role === "leader") {
-        canDelete = true
+    if (teamParticipants.length > 0) {
+      const firstTeamParticipant = teamParticipants[0]
+      if (firstTeamParticipant?.teams?.team_members) {
+        const userTeamMember = firstTeamParticipant.teams.team_members.find(
+          (member: any) => member.user_id === data.user.id,
+        )
+        if (userTeamMember?.role === "leader") {
+          canDelete = true
+        }
       }
     }
   }
@@ -182,11 +186,13 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
 
     const userTeamIds = userTeamMembership?.map((tm) => tm.team_id) || []
 
-    // Check if user is in the challenge's team
-    const teamParticipant = challenge.challenge_participants?.find((p: any) => p.team_id && p.teams)
+    const teamParticipants = challenge.challenge_participants?.filter((p: any) => p.team_id && p.teams) || []
 
-    if (teamParticipant && !userTeamIds.includes(teamParticipant.team_id)) {
-      redirect("/challenges")
+    if (teamParticipants.length > 0) {
+      const firstTeamParticipant = teamParticipants[0]
+      if (firstTeamParticipant && !userTeamIds.includes(firstTeamParticipant.team_id)) {
+        redirect("/challenges")
+      }
     }
   }
 
@@ -205,27 +211,59 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     .single()
 
   // Get leaderboard for this challenge
-  const { data: leaderboard } = await supabase
-    .from("challenge_progress")
-    .select(`
-      current_progress,
-      progress_percentage,
-      users (
+  let leaderboard: LeaderboardEntry[] = []
+  if (challenge.challenge_type === "team") {
+    // For team challenges, get participants directly from challenge_participants table
+    const { data: teamLeaderboard } = await supabase
+      .from("challenge_participants")
+      .select(`
         id,
-        first_name,
-        last_name,
-        avatar_url,
-        department,
-        points
-      )
-    `)
-    .eq("challenge_id", params.id)
-    .order("current_progress", { ascending: false })
-    .limit(10)
+        current_progress,
+        completed,
+        users (
+          id,
+          first_name,
+          last_name,
+          avatar_url,
+          department,
+          points
+        )
+      `)
+      .eq("challenge_id", params.id)
+      .order("current_progress", { ascending: false })
+      .limit(10)
 
-  console.log("[v0] Challenge ID:", params.id)
-  console.log("[v0] Leaderboard data:", leaderboard)
-  console.log("[v0] Challenge participants:", challenge.challenge_participants)
+    // Transform to match expected leaderboard format
+    leaderboard =
+      teamLeaderboard?.map((participant) => ({
+        current_progress: participant.current_progress,
+        progress_percentage: challenge.target_value
+          ? Math.round((participant.current_progress / challenge.target_value) * 100)
+          : 0,
+        users: participant.users,
+      })) || []
+  } else {
+    // For individual and company challenges, use challenge_progress table
+    const { data: individualLeaderboard } = await supabase
+      .from("challenge_progress")
+      .select(`
+        current_progress,
+        progress_percentage,
+        users (
+          id,
+          first_name,
+          last_name,
+          avatar_url,
+          department,
+          points
+        )
+      `)
+      .eq("challenge_id", params.id)
+      .order("current_progress", { ascending: false })
+      .limit(10)
+
+    leaderboard = individualLeaderboard || []
+  }
 
   const { data: challengeActivities } = await supabase
     .from("recent_challenge_activities")
@@ -283,21 +321,9 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     recentActions = participantActions
   }
 
-  console.log("[v0] Challenge activities:", challengeActivities)
-  console.log("[v0] Recent actions raw:", recentActions)
-  console.log("[v0] Challenge category:", challenge.category)
-
   const filteredRecentActions = recentActions?.filter((action) => {
     if (challenge.category === "general") return true
     const categoryMatch = action.sustainability_actions?.action_categories?.name === challenge.category
-    console.log(
-      "[v0] Action category:",
-      action.sustainability_actions?.action_categories?.name,
-      "Challenge category:",
-      challenge.category,
-      "Match:",
-      categoryMatch,
-    )
     return categoryMatch
   })
 
@@ -326,8 +352,6 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 20)
 
-  console.log("[v0] Combined activities:", combinedActivities)
-
   // Calculate challenge statistics
   const totalParticipants = challenge.challenge_participants?.length || 0
 
@@ -336,8 +360,6 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
     .from("challenge_progress")
     .select("current_progress, progress_percentage, completed")
     .eq("challenge_id", params.id)
-
-  console.log("[v0] Progress data:", progressData)
 
   const completedParticipants = progressData?.filter((p) => p.completed).length || 0
   const averageProgress = progressData?.length
@@ -380,16 +402,32 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
   let teamStats = null
 
   if (isTeamChallenge) {
-    const teamParticipant = challenge.challenge_participants?.find(
-      (participant: any) => participant.team_id && participant.teams,
-    )
+    const teamParticipants =
+      challenge.challenge_participants?.filter((participant: any) => participant.team_id && participant.teams) || []
 
-    if (teamParticipant?.teams) {
-      teamStats = {
-        teamName: teamParticipant.teams.name,
-        memberCount: teamParticipant.teams.team_members?.length || 0,
-        teamId: teamParticipant.team_id,
-        teamCount: 1, // Always 1 for single team challenges
+    if (teamParticipants.length > 0) {
+      const firstTeamParticipant = teamParticipants[0]
+
+      if (firstTeamParticipant?.teams) {
+        teamStats = {
+          teamName: firstTeamParticipant.teams.name,
+          memberCount: firstTeamParticipant.teams.team_members?.length || 0,
+          teamId: firstTeamParticipant.team_id,
+          teamCount: 1, // Always 1 for single team challenges
+        }
+      }
+    } else {
+      // Fallback: count team participants directly
+      const teamParticipantsOnly =
+        challenge.challenge_participants?.filter((participant: any) => participant.team_id) || []
+
+      if (teamParticipantsOnly.length > 0) {
+        teamStats = {
+          teamName: "Team Challenge", // Fallback name
+          memberCount: teamParticipantsOnly.length,
+          teamId: teamParticipantsOnly[0].team_id,
+          teamCount: 1,
+        }
       }
     }
   }
@@ -398,20 +436,21 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
 
   if (userProfile?.is_admin) {
     if (challenge.challenge_type === "individual") {
-      // Admins cannot join/leave personal challenges of other users
       canJoinLeave = challenge.created_by === data.user.id
     } else if (challenge.challenge_type === "team") {
-      // Check if admin is part of the team for team challenges
       const { data: userTeamMembership } = await supabase
         .from("team_members")
         .select("team_id")
         .eq("user_id", data.user.id)
 
       const userTeamIds = userTeamMembership?.map((tm) => tm.team_id) || []
-      const teamParticipant = challenge.challenge_participants?.find((p: any) => p.team_id && p.teams)
+      const teamParticipants = challenge.challenge_participants?.filter((p: any) => p.team_id && p.teams) || []
 
-      if (teamParticipant && !userTeamIds.includes(teamParticipant.team_id)) {
-        canJoinLeave = false
+      if (teamParticipants.length > 0) {
+        const firstTeamParticipant = teamParticipants[0]
+        if (firstTeamParticipant && !userTeamIds.includes(firstTeamParticipant.team_id)) {
+          canJoinLeave = false
+        }
       }
     }
   }
@@ -503,7 +542,7 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                   <div className="p-3 bg-primary/10 rounded-lg border-2 border-primary/20">
                     <h4 className="font-semibold text-primary text-lg">{teamStats.teamName}</h4>
                     <p className="text-sm text-muted-foreground">
-                      {teamStats.memberCount} team member{teamStats.memberCount !== 1 ? "s" : ""}
+                      {teamStats.memberCount} team member{teamStats.memberCount !== 1 ? "s" : ""} participating
                     </p>
                   </div>
                 ) : !isTeamChallenge ? (
@@ -516,7 +555,9 @@ export default async function ChallengeDetailPage({ params }: { params: { id: st
                     </p>
                   </>
                 ) : (
-                  <p className="text-xs text-muted-foreground">No team assigned</p>
+                  <div className="p-3 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Team information is being loaded...</p>
+                  </div>
                 )}
               </div>
             </CardContent>

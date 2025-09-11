@@ -112,16 +112,32 @@ export default async function ChallengesPage() {
         let isUserInTeam = false
 
         if (challenge.challenge_type === "team") {
-          const teamParticipant = challenge.challenge_participants?.find(
-            (participant: any) => participant.team_id && participant.teams,
-          )
+          // Get all team participants (users with team_id set)
+          const teamParticipants =
+            challenge.challenge_participants?.filter((participant: any) => participant.team_id && participant.teams) ||
+            []
 
-          if (teamParticipant?.teams) {
-            teamName = teamParticipant.teams.name
-            totalTeamMembers = teamParticipant.teams.team_members?.length || 0
+          if (teamParticipants.length > 0) {
+            // Get the first team (assuming one team per challenge for now)
+            const firstTeamParticipant = teamParticipants[0]
+
+            teamName = firstTeamParticipant.teams.name
+
+            // Count actual team members from the team_members table
+            totalTeamMembers = firstTeamParticipant.teams.team_members?.length || 0
             teamCount = 1
 
-            isUserInTeam = userTeamIds.includes(teamParticipant.team_id)
+            // Check if current user is in this team
+            isUserInTeam =
+              firstTeamParticipant.teams.team_members?.some((member: any) => member.user_id === data.user.id) || false
+          } else {
+            // Fallback: check if user is directly participating in the challenge
+            const allTeamParticipants =
+              challenge.challenge_participants?.filter((participant: any) => participant.team_id) || []
+
+            isUserInTeam =
+              challenge.challenge_participants?.some((participant: any) => participant.user_id === data.user.id) ||
+              false
           }
         }
 
@@ -133,7 +149,6 @@ export default async function ChallengesPage() {
           const isCreatedByUser = challenge.created_by === data.user.id
           const isParticipatingInChallenge = !!userParticipation
 
-          // Only show personal challenges if user created it or is participating in it
           if (!isCreatedByUser && !isParticipatingInChallenge && !userProfile?.is_admin) {
             return null
           }
@@ -417,12 +432,12 @@ export default async function ChallengesPage() {
                                     <p className="font-semibold text-primary text-lg">{challenge.teamName}</p>
                                     <p className="text-sm text-muted-foreground">
                                       {challenge.totalTeamMembers} team member
-                                      {challenge.totalTeamMembers !== 1 ? "s" : ""}
+                                      {challenge.totalTeamMembers !== 1 ? "s" : ""} participating
                                     </p>
                                   </div>
                                 ) : (
                                   <div className="p-3 bg-muted/50 rounded-lg">
-                                    <p className="text-sm text-muted-foreground">No team assigned</p>
+                                    <p className="text-sm text-muted-foreground">Team information loading...</p>
                                   </div>
                                 )}
 

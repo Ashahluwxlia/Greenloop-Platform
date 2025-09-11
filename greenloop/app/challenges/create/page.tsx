@@ -86,7 +86,6 @@ export default function CreateChallengePage() {
 
           // Get the team IDs the user is part of
           const userTeamIds = userTeamMemberships?.map((tm) => tm.team_id) || []
-
           if (userTeamIds.length > 0) {
             // Fetch team stats for user's teams
             const { data: userTeams } = await supabase
@@ -153,7 +152,6 @@ export default function CreateChallengePage() {
       })
 
       const result = await response.json()
-
       if (!response.ok) {
         if (result.details) {
           // Handle validation errors from server
@@ -173,6 +171,7 @@ export default function CreateChallengePage() {
         router.push("/challenges")
       }, 2000)
     } catch (err: any) {
+      console.error("Submit error:", err)
       form.setError("root", {
         message: err.message || "Failed to create challenge",
       })
