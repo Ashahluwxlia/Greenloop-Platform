@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Target, UserMinus, Loader2, Eye, CheckCircle, Clock, Users } from "lucide-react"
@@ -9,6 +8,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
+import { ChallengeDeleteButton } from "@/components/challenge-delete-button"
 
 interface ChallengeCardActionsProps {
   challengeId: string
@@ -19,6 +19,12 @@ interface ChallengeCardActionsProps {
   userProgress?: number
   targetValue?: number
   progressPercentage?: number
+  canDelete?: boolean
+  challengeTitle?: string
+  isAdmin?: boolean
+  challengeCreatedBy?: string
+  currentUserId?: string
+  isUserInTeam?: boolean
 }
 
 export function ChallengeCardActions({
@@ -30,6 +36,12 @@ export function ChallengeCardActions({
   userProgress = 0,
   targetValue = 0,
   progressPercentage = 0,
+  canDelete = false,
+  challengeTitle = "",
+  isAdmin = false,
+  challengeCreatedBy,
+  currentUserId,
+  isUserInTeam = false,
 }: ChallengeCardActionsProps) {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
@@ -85,6 +97,26 @@ export function ChallengeCardActions({
     }
   }
 
+  const shouldShowJoinLeave = () => {
+    if (challengeType === "individual") {
+      if (isAdmin && challengeCreatedBy !== currentUserId) {
+        return false
+      }
+      return challengeCreatedBy === currentUserId
+    }
+
+    if (challengeType === "team") {
+      if (isAdmin && !isUserInTeam) {
+        return false
+      }
+      return isUserInTeam
+    }
+
+    return true
+  }
+
+  const showJoinLeaveButtons = shouldShowJoinLeave()
+
   return (
     <div className="space-y-3">
       {isParticipating && !challengeEnded && (
@@ -118,6 +150,11 @@ export function ChallengeCardActions({
               <CheckCircle className="h-4 w-4" />
               Done
             </Button>
+          ) : !showJoinLeaveButtons ? (
+            <Button variant="outline" disabled className="flex-1 gap-2 bg-transparent">
+              <Eye className="h-4 w-4" />
+              View Only
+            </Button>
           ) : (
             <Button variant="outline" disabled className="flex-1 gap-2 bg-transparent">
               <Users className="h-4 w-4" />
@@ -133,6 +170,11 @@ export function ChallengeCardActions({
           <Button variant="default" disabled className="flex-1 gap-2 bg-green-600">
             <CheckCircle className="h-4 w-4" />
             Done
+          </Button>
+        ) : !showJoinLeaveButtons ? (
+          <Button variant="outline" disabled className="flex-1 gap-2 bg-transparent">
+            <Eye className="h-4 w-4" />
+            View Only
           </Button>
         ) : isParticipating ? (
           <Button
@@ -151,6 +193,18 @@ export function ChallengeCardActions({
           </Button>
         )}
       </div>
+
+      {canDelete && challengeType === "individual" && (
+        <ChallengeDeleteButton
+          challengeId={challengeId}
+          challengeTitle={challengeTitle}
+          challengeType={challengeType}
+          canDelete={canDelete}
+          variant="outline"
+          size="sm"
+          className="w-full"
+        />
+      )}
     </div>
   )
 }

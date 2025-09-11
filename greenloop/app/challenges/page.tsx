@@ -25,6 +25,12 @@ export default async function ChallengesPage() {
     .from("challenges")
     .select(`
       *,
+      users!challenges_created_by_fkey (
+        id,
+        first_name,
+        last_name,
+        avatar_url
+      ),
       challenge_participants (
         id,
         user_id,
@@ -46,6 +52,18 @@ export default async function ChallengesPage() {
     .eq("is_active", true)
     .gte("end_date", new Date().toISOString())
     .order("start_date", { ascending: false })
+
+  // Get user's team membership
+  const { data: userTeamMembership } = await supabase
+    .from("team_members")
+    .select(`
+      team_id,
+      role,
+      teams (id, name)
+    `)
+    .eq("user_id", data.user.id)
+
+  const userTeamIds = userTeamMembership?.map((tm) => tm.team_id) || []
 
   // Get user's participations with progress data
   const { data: userParticipations } = await supabase
@@ -81,42 +99,62 @@ export default async function ChallengesPage() {
   const participationMap = new Map(allUserParticipations?.map((p) => [p.challenge_id, p]) || [])
 
   const challengesWithStats =
-    allChallenges?.map((challenge) => {
-      const participantCount = challenge.challenge_participants?.length || 0
-      const userParticipation = participationMap.get(challenge.id)
-      const userProgress = progressMap.get(challenge.id)
-      const challengeEnded = new Date(challenge.end_date) < new Date()
+    allChallenges
+      ?.map((challenge) => {
+        const participantCount = challenge.challenge_participants?.length || 0
+        const userParticipation = participationMap.get(challenge.id)
+        const userProgress = progressMap.get(challenge.id)
+        const challengeEnded = new Date(challenge.end_date) < new Date()
 
-      let teamCount = 0
-      let totalTeamMembers = 0
-      let teamName = ""
+        let teamCount = 0
+        let totalTeamMembers = 0
+        let teamName = ""
+        let isUserInTeam = false
 
-      if (challenge.challenge_type === "team") {
-        const teamParticipant = challenge.challenge_participants?.find(
-          (participant: any) => participant.team_id && participant.teams,
-        )
+        if (challenge.challenge_type === "team") {
+          const teamParticipant = challenge.challenge_participants?.find(
+            (participant: any) => participant.team_id && participant.teams,
+          )
 
-        if (teamParticipant?.teams) {
-          teamName = teamParticipant.teams.name
-          totalTeamMembers = teamParticipant.teams.team_members?.length || 0
-          teamCount = 1
+          if (teamParticipant?.teams) {
+            teamName = teamParticipant.teams.name
+            totalTeamMembers = teamParticipant.teams.team_members?.length || 0
+            teamCount = 1
+
+            isUserInTeam = userTeamIds.includes(teamParticipant.team_id)
+          }
         }
-      }
 
-      return {
-        ...challenge,
-        participants: participantCount,
-        teamCount,
-        totalTeamMembers,
-        teamName,
-        maxParticipants: challenge.max_participants || 100,
-        isParticipating: !!userParticipation,
-        isCompleted: userProgress?.completed || false,
-        userProgress: userProgress?.current_progress || 0,
-        progressPercentage: userProgress?.progress_percentage || 0,
-        challengeEnded,
-      }
-    }) || []
+        if (challenge.challenge_type === "team" && !isUserInTeam && !userProfile?.is_admin) {
+          return null
+        }
+
+        if (challenge.challenge_type === "individual") {
+          const isCreatedByUser = challenge.created_by === data.user.id
+          const isParticipatingInChallenge = !!userParticipation
+
+          // Only show personal challenges if user created it or is participating in it
+          if (!isCreatedByUser && !isParticipatingInChallenge && !userProfile?.is_admin) {
+            return null
+          }
+        }
+
+        return {
+          ...challenge,
+          participants: participantCount,
+          teamCount,
+          totalTeamMembers,
+          teamName,
+          maxParticipants: challenge.max_participants || 100,
+          isParticipating: !!userParticipation,
+          isCompleted: userProgress?.completed || false,
+          userProgress: userProgress?.current_progress || 0,
+          progressPercentage: userProgress?.progress_percentage || 0,
+          challengeEnded,
+          isUserInTeam,
+        }
+      })
+      .filter(Boolean) || [] // Remove null entries from filtering
 
   const myParticipations = userParticipations || []
 
@@ -177,6 +215,13 @@ export default async function ChallengesPage() {
                                   <Badge variant="outline">{challenge.category}</Badge>
                                 </div>
                                 <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                {challenge.challenge_type === "individual" &&
+                                  userProfile?.is_admin &&
+                                  challenge.users && (
+                                    <div className="text-sm text-muted-foreground">
+                                      Created by: {challenge.users.first_name} {challenge.users.last_name}
+                                    </div>
+                                  )}
                                 <CardDescription className="text-pretty">{challenge.description}</CardDescription>
                               </CardHeader>
                               <CardContent className="space-y-4">
@@ -224,6 +269,10 @@ export default async function ChallengesPage() {
                                   userProgress={challenge.userProgress}
                                   targetValue={challenge.target_value}
                                   progressPercentage={challenge.progressPercentage}
+                                  isAdmin={userProfile?.is_admin || false}
+                                  challengeCreatedBy={challenge.created_by}
+                                  currentUserId={data.user.id}
+                                  isUserInTeam={challenge.isUserInTeam}
                                 />
                               </CardContent>
                             </Card>
@@ -253,6 +302,13 @@ export default async function ChallengesPage() {
                                   <Badge variant="outline">{challenge.category}</Badge>
                                 </div>
                                 <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                {challenge.challenge_type === "individual" &&
+                                  userProfile?.is_admin &&
+                                  challenge.users && (
+                                    <div className="text-sm text-muted-foreground">
+                                      Created by: {challenge.users.first_name} {challenge.users.last_name}
+                                    </div>
+                                  )}
                                 <CardDescription className="text-pretty">{challenge.description}</CardDescription>
                               </CardHeader>
                               <CardContent className="space-y-4">
@@ -300,6 +356,10 @@ export default async function ChallengesPage() {
                                   userProgress={challenge.userProgress}
                                   targetValue={challenge.target_value}
                                   progressPercentage={challenge.progressPercentage}
+                                  isAdmin={userProfile?.is_admin || false}
+                                  challengeCreatedBy={challenge.created_by}
+                                  currentUserId={data.user.id}
+                                  isUserInTeam={challenge.isUserInTeam}
                                 />
                               </CardContent>
                             </Card>
@@ -329,6 +389,13 @@ export default async function ChallengesPage() {
                                   <Badge variant="outline">{challenge.category}</Badge>
                                 </div>
                                 <CardTitle className="text-lg text-balance">{challenge.title}</CardTitle>
+                                {challenge.challenge_type === "individual" &&
+                                  userProfile?.is_admin &&
+                                  challenge.users && (
+                                    <div className="text-sm text-muted-foreground">
+                                      Created by: {challenge.users.first_name} {challenge.users.last_name}
+                                    </div>
+                                  )}
                                 <CardDescription className="text-pretty">{challenge.description}</CardDescription>
                               </CardHeader>
                               <CardContent className="space-y-4">
@@ -377,6 +444,10 @@ export default async function ChallengesPage() {
                                   userProgress={challenge.userProgress}
                                   targetValue={challenge.target_value}
                                   progressPercentage={challenge.progressPercentage}
+                                  isAdmin={userProfile?.is_admin || false}
+                                  challengeCreatedBy={challenge.created_by}
+                                  currentUserId={data.user.id}
+                                  isUserInTeam={challenge.isUserInTeam}
                                 />
                               </CardContent>
                             </Card>

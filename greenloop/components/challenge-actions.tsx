@@ -15,6 +15,7 @@ interface ChallengeActionsProps {
   userProgress?: number
   targetValue?: number
   targetMetric?: string
+  canJoinLeave?: boolean
 }
 
 export function ChallengeActions({
@@ -26,6 +27,7 @@ export function ChallengeActions({
   userProgress = 0,
   targetValue = 0,
   targetMetric = "actions",
+  canJoinLeave = true,
 }: ChallengeActionsProps) {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
@@ -77,6 +79,18 @@ export function ChallengeActions({
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (!canJoinLeave) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Button size="lg" disabled variant="secondary" className="gap-2">
+          <Users className="h-4 w-4" />
+          View Only
+        </Button>
+        <p className="text-sm text-muted-foreground text-center">Cannot participate in this challenge</p>
+      </div>
+    )
   }
 
   if (challengeType === "team") {
