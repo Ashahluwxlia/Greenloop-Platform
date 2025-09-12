@@ -17,6 +17,7 @@ import {
   Shield,
   LogOut,
   User,
+  CheckSquare,
 } from "lucide-react"
 
 const sidebarItems = [
@@ -39,6 +40,11 @@ const sidebarItems = [
     title: "Challenge Management",
     href: "/admin/challenges",
     icon: Target,
+  },
+  {
+    title: "Action Reviews",
+    href: "/admin/action-reviews",
+    icon: CheckSquare,
   },
   {
     title: "Analytics & Reports",

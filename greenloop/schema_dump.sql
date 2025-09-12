@@ -1,5 +1,5 @@
 
-\restrict hdMbiz7mQ6AO3oIKp2UeAfLtkAYy0zoFBemJNUChbbI4ckwicrwd35Dpgciyvg5
+\restrict mWjyeIbieFsDydhKMFxdCY6TyqbiQoo2BSDx4eLphTlqD6QVpONC3B1yY4z28iG
 
 
 SET statement_timeout = 0;
@@ -548,7 +548,7 @@ CREATE OR REPLACE FUNCTION "public"."is_admin"("user_uuid" "uuid" DEFAULT "auth"
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.users 
-    WHERE id = user_uuid 
+    WHERE id = COALESCE(user_uuid, auth.uid())
     AND is_admin = true 
     AND is_active = true
   );
@@ -1491,11 +1491,36 @@ CREATE TABLE IF NOT EXISTS "public"."sustainability_actions" (
     "is_active" boolean DEFAULT true,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
+    "is_user_created" boolean DEFAULT false,
+    "submitted_by" "uuid",
+    "rejection_reason" "text",
+    "auto_logged_for_submitter" boolean DEFAULT false,
+    "photo_url" "text",
     CONSTRAINT "sustainability_actions_difficulty_level_check" CHECK ((("difficulty_level" >= 1) AND ("difficulty_level" <= 5)))
 );
 
 
 ALTER TABLE "public"."sustainability_actions" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."is_user_created" IS 'True if this action was submitted by a user rather than created by admin';
+
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."submitted_by" IS 'User ID who submitted this action (for user-created actions)';
+
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."rejection_reason" IS 'Reason provided by admin if action was rejected';
+
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."auto_logged_for_submitter" IS 'True if this action was automatically logged for the submitter when approved';
+
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."photo_url" IS 'URL of uploaded photo proof for user-submitted actions (nullable for admin-created templates)';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."user_actions" (
@@ -1509,6 +1534,7 @@ CREATE TABLE IF NOT EXISTS "public"."user_actions" (
     "completed_at" timestamp with time zone DEFAULT "now"(),
     "verified_at" timestamp with time zone,
     "verified_by" "uuid",
+    "photo_url" "text",
     CONSTRAINT "user_actions_co2_non_negative_check" CHECK (("co2_saved" >= (0)::numeric)),
     CONSTRAINT "user_actions_points_non_negative_check" CHECK (("points_earned" >= 0)),
     CONSTRAINT "user_actions_verification_status_check" CHECK (("verification_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))
@@ -1516,6 +1542,10 @@ CREATE TABLE IF NOT EXISTS "public"."user_actions" (
 
 
 ALTER TABLE "public"."user_actions" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."user_actions"."photo_url" IS 'URL of uploaded photo proof for the action';
+
 
 
 CREATE OR REPLACE VIEW "public"."admin_category_breakdown" AS
@@ -2506,6 +2536,18 @@ CREATE INDEX "idx_sustainability_actions_difficulty" ON "public"."sustainability
 
 
 
+CREATE INDEX "idx_sustainability_actions_pending_submissions" ON "public"."sustainability_actions" USING "btree" ("is_user_created", "is_active", "submitted_by") WHERE (("is_user_created" = true) AND ("is_active" = false));
+
+
+
+CREATE INDEX "idx_sustainability_actions_user_created" ON "public"."sustainability_actions" USING "btree" ("is_user_created", "submitted_by") WHERE ("is_user_created" = true);
+
+
+
+CREATE INDEX "idx_sustainability_actions_user_submissions" ON "public"."sustainability_actions" USING "btree" ("submitted_by", "is_user_created", "is_active") WHERE ("is_user_created" = true);
+
+
+
 CREATE INDEX "idx_system_settings_category" ON "public"."system_settings" USING "btree" ("category");
 
 
@@ -2805,6 +2847,11 @@ ALTER TABLE ONLY "public"."security_audit_log"
 
 ALTER TABLE ONLY "public"."sustainability_actions"
     ADD CONSTRAINT "sustainability_actions_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "public"."action_categories"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."sustainability_actions"
+    ADD CONSTRAINT "sustainability_actions_submitted_by_fkey" FOREIGN KEY ("submitted_by") REFERENCES "auth"."users"("id");
 
 
 
@@ -3200,19 +3247,19 @@ CREATE POLICY "security_audit_log_admin_only" ON "public"."security_audit_log" U
 ALTER TABLE "public"."sustainability_actions" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "sustainability_actions_admin_delete" ON "public"."sustainability_actions" FOR DELETE USING ("public"."is_admin"());
+CREATE POLICY "sustainability_actions_delete_policy" ON "public"."sustainability_actions" FOR DELETE USING ("public"."is_admin"());
 
 
 
-CREATE POLICY "sustainability_actions_admin_insert" ON "public"."sustainability_actions" FOR INSERT WITH CHECK ("public"."is_admin"());
+CREATE POLICY "sustainability_actions_insert_policy" ON "public"."sustainability_actions" FOR INSERT WITH CHECK (("public"."is_admin"() OR (("submitted_by" = "auth"."uid"()) AND ("is_user_created" = true) AND ("is_active" = false) AND ("verification_required" = true))));
 
 
 
-CREATE POLICY "sustainability_actions_admin_update" ON "public"."sustainability_actions" FOR UPDATE USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
+CREATE POLICY "sustainability_actions_select_policy" ON "public"."sustainability_actions" FOR SELECT USING ((("is_active" = true) OR ("submitted_by" = "auth"."uid"()) OR "public"."is_admin"()));
 
 
 
-CREATE POLICY "sustainability_actions_select_all" ON "public"."sustainability_actions" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
+CREATE POLICY "sustainability_actions_update_policy" ON "public"."sustainability_actions" FOR UPDATE USING (("public"."is_admin"() OR (("submitted_by" = "auth"."uid"()) AND ("is_user_created" = true) AND ("is_active" = false)))) WITH CHECK (("public"."is_admin"() OR (("submitted_by" = "auth"."uid"()) AND ("is_user_created" = true) AND ("is_active" = false))));
 
 
 
@@ -4100,6 +4147,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict hdMbiz7mQ6AO3oIKp2UeAfLtkAYy0zoFBemJNUChbbI4ckwicrwd35Dpgciyvg5
+\unrestrict mWjyeIbieFsDydhKMFxdCY6TyqbiQoo2BSDx4eLphTlqD6QVpONC3B1yY4z28iG
 
 RESET ALL;

@@ -112,23 +112,31 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
     }
   }, [previewUrls])
 
-  const uploadPhotos = async (actionLogId: string) => {
+  const uploadPhotos = async () => {
     if (selectedFiles.length === 0) return []
 
     const uploadPromises = selectedFiles.map(async (file, index) => {
       const fileExt = file.name.split(".").pop()
-      const fileName = `${actionLogId}_${index}.${fileExt}`
-      const filePath = `action-photos/${fileName}`
+      const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(2)}_${index}.${fileExt}`
+      const filePath = fileName
 
-      const { error: uploadError } = await supabase.storage.from("action-photos").upload(filePath, file)
+      console.log("[v0] Uploading file:", { fileName, filePath, fileSize: file.size })
 
-      if (uploadError) throw uploadError
+      const { error: uploadError, data: uploadData } = await supabase.storage
+        .from("action-photos")
+        .upload(filePath, file)
 
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("action-photos").getPublicUrl(filePath)
+      console.log("[v0] Upload result:", { uploadError, uploadData })
 
-      return publicUrl
+      if (uploadError) {
+        console.error("[v0] Upload failed:", uploadError)
+        throw new Error(`Failed to upload photo: ${uploadError.message}`)
+      }
+
+      const { data: urlData } = supabase.storage.from("action-photos").getPublicUrl(filePath)
+      console.log("[v0] Public URL data:", urlData)
+
+      return urlData.publicUrl
     })
 
     return Promise.all(uploadPromises)
@@ -138,10 +146,32 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
     e.preventDefault()
     if (!action || !user) return
 
+    if (selectedFiles.length === 0) {
+      setError("Photo proof is required for all actions")
+      return
+    }
+
+    if (action.verification_required && !notes.trim()) {
+      setError("Notes are required for actions that need verification")
+      return
+    }
+
     setIsSubmitting(true)
     setError(null)
 
     try {
+      console.log("[v0] Starting photo upload before API call...")
+      let photoUrls: string[] = []
+
+      try {
+        photoUrls = await uploadPhotos()
+        console.log("[v0] Photos uploaded successfully:", photoUrls)
+      } catch (photoError) {
+        console.error("[v0] Photo upload failed:", photoError)
+        setError("Failed to upload photos. Please try again.")
+        return
+      }
+
       const response = await fetch("/api/actions/log", {
         method: "POST",
         headers: {
@@ -150,7 +180,8 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
         body: JSON.stringify({
           action_id: action.id,
           notes: notes.trim() || null,
-          has_photos: selectedFiles.length > 0,
+          has_photos: photoUrls.length > 0,
+          photo_url: photoUrls[0] || null, // Include photo URL in initial request
         }),
       })
 
@@ -160,18 +191,7 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
         throw new Error(result.error || "Failed to log action")
       }
 
-      // Upload photos if any were selected
-      if (selectedFiles.length > 0) {
-        try {
-          const photoUrls = await uploadPhotos(result.userAction.id)
-
-          // Update the user action with photo URLs
-          await supabase.from("user_actions").update({ photo_urls: photoUrls }).eq("id", result.userAction.id)
-        } catch (photoError) {
-          console.error("Photo upload failed:", photoError)
-          // Don't fail the entire submission if photo upload fails
-        }
-      }
+      console.log("[v0] Action logged successfully with photos")
 
       setSuccess(true)
 
@@ -229,14 +249,14 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
                 </div>
                 <CardTitle className="text-xl">Action Logged Successfully!</CardTitle>
                 <CardDescription>
-                  You've earned {action.points_value} points and saved {action.co2_impact}kg of CO₂
+                  Your action has been submitted for review. Upon approval, you'll earn {action.points_value} points and
+                  save {action.co2_impact}kg of CO₂
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  {action.verification_required
-                    ? "Your action is pending verification by an admin."
-                    : "Your points have been added to your account."}
+                  An admin will review your submission and verify the completed action. Points will be added to your
+                  account once approved.
                 </p>
                 <Button asChild className="w-full">
                   <Link href="/dashboard">Return to Dashboard</Link>
@@ -312,11 +332,19 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
             <Alert>
               <Camera className="h-4 w-4" />
               <AlertDescription>
-                This action requires verification. Please provide detailed notes and photos (if applicable) about how
-                you completed this action. An admin will review your submission.
+                This action requires verification. Please provide detailed notes and photos about how you completed this
+                action. An admin will review your submission.
               </AlertDescription>
             </Alert>
           )}
+
+          <Alert>
+            <Camera className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Photo proof is required</strong> for all sustainability actions to ensure authenticity and proper
+              verification.
+            </AlertDescription>
+          </Alert>
 
           {/* Log Form */}
           <Card>
@@ -346,8 +374,8 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
 
                 <div className="space-y-2">
                   <Label htmlFor="photos">
-                    Photos (Optional)
-                    <span className="text-sm text-muted-foreground ml-2">Max 3 photos</span>
+                    Photos <span className="text-destructive">*</span>
+                    <span className="text-sm text-muted-foreground ml-2">Required - Max 3 photos</span>
                   </Label>
                   <div className="space-y-4">
                     <Input
@@ -357,6 +385,7 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
                       multiple
                       onChange={handleFileSelect}
                       className="cursor-pointer"
+                      required
                     />
 
                     {previewUrls.length > 0 && (
@@ -394,7 +423,9 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
                 <div className="flex gap-3">
                   <Button
                     type="submit"
-                    disabled={isSubmitting || (action.verification_required && !notes.trim())}
+                    disabled={
+                      isSubmitting || (action.verification_required && !notes.trim()) || selectedFiles.length === 0 // Disable submit if no photos
+                    }
                     className="flex-1"
                   >
                     {isSubmitting ? "Logging Action..." : "Log Action"}
