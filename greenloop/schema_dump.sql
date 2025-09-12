@@ -1,5 +1,5 @@
 
-\restrict hdMbiz7mQ6AO3oIKp2UeAfLtkAYy0zoFBemJNUChbbI4ckwicrwd35Dpgciyvg5
+\restrict hD1NR6hazHhyJpcKHnacqvWAvQhuzmAXWH0Ad9LvigPaRml9SsjFaIPmvA3kMht
 
 
 SET statement_timeout = 0;
@@ -1491,11 +1491,31 @@ CREATE TABLE IF NOT EXISTS "public"."sustainability_actions" (
     "is_active" boolean DEFAULT true,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
+    "is_user_created" boolean DEFAULT false,
+    "submitted_by" "uuid",
+    "rejection_reason" "text",
+    "auto_logged_for_submitter" boolean DEFAULT false,
     CONSTRAINT "sustainability_actions_difficulty_level_check" CHECK ((("difficulty_level" >= 1) AND ("difficulty_level" <= 5)))
 );
 
 
 ALTER TABLE "public"."sustainability_actions" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."is_user_created" IS 'True if this action was submitted by a user rather than created by admin';
+
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."submitted_by" IS 'User ID who submitted this action (for user-created actions)';
+
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."rejection_reason" IS 'Reason provided by admin if action was rejected';
+
+
+
+COMMENT ON COLUMN "public"."sustainability_actions"."auto_logged_for_submitter" IS 'True if this action was automatically logged for the submitter when approved';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."user_actions" (
@@ -1509,6 +1529,7 @@ CREATE TABLE IF NOT EXISTS "public"."user_actions" (
     "completed_at" timestamp with time zone DEFAULT "now"(),
     "verified_at" timestamp with time zone,
     "verified_by" "uuid",
+    "photo_url" "text",
     CONSTRAINT "user_actions_co2_non_negative_check" CHECK (("co2_saved" >= (0)::numeric)),
     CONSTRAINT "user_actions_points_non_negative_check" CHECK (("points_earned" >= 0)),
     CONSTRAINT "user_actions_verification_status_check" CHECK (("verification_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))
@@ -1516,6 +1537,10 @@ CREATE TABLE IF NOT EXISTS "public"."user_actions" (
 
 
 ALTER TABLE "public"."user_actions" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."user_actions"."photo_url" IS 'URL of uploaded photo proof for the action';
+
 
 
 CREATE OR REPLACE VIEW "public"."admin_category_breakdown" AS
@@ -2506,6 +2531,14 @@ CREATE INDEX "idx_sustainability_actions_difficulty" ON "public"."sustainability
 
 
 
+CREATE INDEX "idx_sustainability_actions_pending_submissions" ON "public"."sustainability_actions" USING "btree" ("is_user_created", "is_active", "submitted_by") WHERE (("is_user_created" = true) AND ("is_active" = false));
+
+
+
+CREATE INDEX "idx_sustainability_actions_user_created" ON "public"."sustainability_actions" USING "btree" ("is_user_created", "submitted_by") WHERE ("is_user_created" = true);
+
+
+
 CREATE INDEX "idx_system_settings_category" ON "public"."system_settings" USING "btree" ("category");
 
 
@@ -2808,6 +2841,11 @@ ALTER TABLE ONLY "public"."sustainability_actions"
 
 
 
+ALTER TABLE ONLY "public"."sustainability_actions"
+    ADD CONSTRAINT "sustainability_actions_submitted_by_fkey" FOREIGN KEY ("submitted_by") REFERENCES "auth"."users"("id");
+
+
+
 ALTER TABLE ONLY "public"."system_settings"
     ADD CONSTRAINT "system_settings_updated_by_fkey" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id");
 
@@ -2879,6 +2917,12 @@ CREATE POLICY "Admins can insert admin activities" ON "public"."admin_activities
 
 
 
+CREATE POLICY "Admins can manage user submissions" ON "public"."sustainability_actions" USING ((EXISTS ( SELECT 1
+   FROM "auth"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND (("users"."raw_user_meta_data" ->> 'is_admin'::"text") = 'true'::"text")))));
+
+
+
 CREATE POLICY "Admins can view all admin activities" ON "public"."admin_activities" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."users"
   WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))));
@@ -2891,6 +2935,10 @@ CREATE POLICY "Admins can view all preferences" ON "public"."user_preferences" F
 
 
 
+CREATE POLICY "Users can create their own actions" ON "public"."sustainability_actions" FOR INSERT WITH CHECK ((("auth"."uid"() = "submitted_by") AND ("is_user_created" = true) AND ("is_active" = false) AND ("verification_required" = true)));
+
+
+
 CREATE POLICY "Users can insert their own preferences" ON "public"."user_preferences" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
 
 
@@ -2899,7 +2947,15 @@ CREATE POLICY "Users can update their own preferences" ON "public"."user_prefere
 
 
 
+CREATE POLICY "Users can update their rejected submissions" ON "public"."sustainability_actions" FOR UPDATE USING ((("is_user_created" = true) AND ("submitted_by" = "auth"."uid"()) AND ("is_active" = false) AND ("rejection_reason" IS NOT NULL))) WITH CHECK ((("is_user_created" = true) AND ("submitted_by" = "auth"."uid"()) AND ("is_active" = false)));
+
+
+
 CREATE POLICY "Users can view their own preferences" ON "public"."user_preferences" FOR SELECT USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users can view their own submitted actions" ON "public"."sustainability_actions" FOR SELECT USING ((("is_active" = true) OR (("is_user_created" = true) AND ("submitted_by" = "auth"."uid"()))));
 
 
 
@@ -4100,6 +4156,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict hdMbiz7mQ6AO3oIKp2UeAfLtkAYy0zoFBemJNUChbbI4ckwicrwd35Dpgciyvg5
+\unrestrict hD1NR6hazHhyJpcKHnacqvWAvQhuzmAXWH0Ad9LvigPaRml9SsjFaIPmvA3kMht
 
 RESET ALL;
