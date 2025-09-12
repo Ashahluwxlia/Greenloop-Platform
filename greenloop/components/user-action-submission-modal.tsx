@@ -117,24 +117,32 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    console.log("[v0] Form submission started")
-
-    if (!validateForm()) {
-      console.log("[v0] Form validation failed, stopping submission")
-      return
-    }
-
-    setIsSubmitting(true)
-    setSubmitStatus("idle")
+    console.log("[v0] =================================")
+    console.log("[v0] FORM SUBMISSION TRIGGERED")
+    console.log("[v0] Event:", e)
+    console.log("[v0] =================================")
 
     try {
+      e.preventDefault()
+      console.log("[v0] Form submission started")
+      console.log("[v0] Current form data:", formData)
+      console.log("[v0] Photo file:", photoFile)
+
+      if (!validateForm()) {
+        console.log("[v0] Form validation failed, stopping submission")
+        return
+      }
+
+      setIsSubmitting(true)
+      setSubmitStatus("idle")
+
       console.log("[v0] Getting current user...")
       // Get current user
       const { data: userData, error: userError } = await supabase.auth.getUser()
       console.log("[v0] User data:", { userData: userData?.user?.id, error: userError })
 
       if (userError || !userData?.user) {
+        console.error("[v0] User authentication failed:", userError)
         throw new Error("User not authenticated")
       }
 
@@ -142,8 +150,8 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
       if (photoFile) {
         console.log("[v0] Starting photo upload process...")
         const fileExt = photoFile.name.split(".").pop()
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`
-        const filePath = `${fileName}`
+        const fileName = `${userData.user.id}/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`
+        const filePath = fileName
 
         console.log("[v0] Upload details:", { fileName, filePath, fileSize: photoFile.size })
 
@@ -167,24 +175,7 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         console.log("[v0] Final photo URL:", photoUrl)
       }
 
-      // Create the action submission
-      console.log("[v0] Creating action submission with data:", {
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        instructions: formData.instructions.trim() || null,
-        category_id: formData.categoryId,
-        points_value: 0,
-        co2_impact: 0,
-        difficulty_level: 1,
-        estimated_time_minutes: null,
-        verification_required: true,
-        is_active: false,
-        is_user_created: true,
-        submitted_by: userData.user.id,
-        photo_url: photoUrl,
-      })
-
-      const { error: actionError, data: actionData } = await supabase.from("sustainability_actions").insert({
+      const insertData = {
         title: formData.title.trim(),
         description: formData.description.trim(),
         instructions: formData.instructions.trim() || null,
@@ -193,18 +184,36 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         co2_impact: 0, // Will be set by admin
         difficulty_level: 1,
         estimated_time_minutes: null,
-        verification_required: true,
-        is_active: false, // Inactive until approved
-        is_user_created: true,
-        submitted_by: userData.user.id,
-        photo_url: photoUrl, // Include photo URL in the submission
-      })
+        verification_required: true, // Required for RLS policy
+        is_active: false, // Required for RLS policy - inactive until approved
+        is_user_created: true, // Required for RLS policy
+        submitted_by: userData.user.id, // Required for RLS policy
+        photo_url: photoUrl || null, // Include photo URL in the submission
+        created_at: new Date().toISOString(), // Explicitly set timestamp
+        updated_at: new Date().toISOString(), // Explicitly set timestamp
+      }
+
+      console.log("[v0] Creating action submission with data:", insertData)
+      console.log("[v0] About to insert into sustainability_actions table...")
+
+      const { error: actionError, data: actionData } = await supabase
+        .from("sustainability_actions")
+        .insert(insertData)
+        .select()
 
       console.log("[v0] Action insert result:", { actionError, actionData })
 
       if (actionError) {
         console.error("[v0] Action insert failed:", actionError)
-        throw new Error("Failed to submit action")
+        console.error("[v0] Full error details:", JSON.stringify(actionError, null, 2))
+
+        if (actionError.message.includes("row-level security")) {
+          throw new Error("Permission denied. Please make sure you're logged in and try again.")
+        } else if (actionError.message.includes("violates")) {
+          throw new Error("Data validation failed. Please check all required fields.")
+        } else {
+          throw new Error(`Failed to submit action: ${actionError.message}`)
+        }
       }
 
       console.log("[v0] Action submitted successfully!")
@@ -229,7 +238,10 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
       }, 2000)
     } catch (error) {
       console.error("[v0] Submission error:", error)
+      console.error("[v0] Error stack:", error instanceof Error ? error.stack : "No stack trace")
       setSubmitStatus("error")
+
+      setErrors({ submit: error instanceof Error ? error.message : "Unknown error occurred" })
     } finally {
       setIsSubmitting(false)
       console.log("[v0] Submission process completed")
@@ -285,7 +297,7 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         {submitStatus === "error" && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription>Failed to submit action. Please try again.</AlertDescription>
+            <AlertDescription>{errors.submit || "Failed to submit action. Please try again."}</AlertDescription>
           </Alert>
         )}
 
