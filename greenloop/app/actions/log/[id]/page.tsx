@@ -138,6 +138,16 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
     e.preventDefault()
     if (!action || !user) return
 
+    if (selectedFiles.length === 0) {
+      setError("Photo proof is required for all actions")
+      return
+    }
+
+    if (action.verification_required && !notes.trim()) {
+      setError("Notes are required for actions that need verification")
+      return
+    }
+
     setIsSubmitting(true)
     setError(null)
 
@@ -160,17 +170,16 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
         throw new Error(result.error || "Failed to log action")
       }
 
-      // Upload photos if any were selected
-      if (selectedFiles.length > 0) {
-        try {
-          const photoUrls = await uploadPhotos(result.userAction.id)
+      // Upload photos (now mandatory)
+      try {
+        const photoUrls = await uploadPhotos(result.userAction.id)
 
-          // Update the user action with photo URLs
-          await supabase.from("user_actions").update({ photo_urls: photoUrls }).eq("id", result.userAction.id)
-        } catch (photoError) {
-          console.error("Photo upload failed:", photoError)
-          // Don't fail the entire submission if photo upload fails
-        }
+        // Update the user action with photo URLs
+        await supabase.from("user_actions").update({ photo_url: photoUrls[0] }).eq("id", result.userAction.id)
+      } catch (photoError) {
+        console.error("Photo upload failed:", photoError)
+        setError("Failed to upload photos. Please try again.")
+        return
       }
 
       setSuccess(true)
@@ -312,11 +321,19 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
             <Alert>
               <Camera className="h-4 w-4" />
               <AlertDescription>
-                This action requires verification. Please provide detailed notes and photos (if applicable) about how
-                you completed this action. An admin will review your submission.
+                This action requires verification. Please provide detailed notes and photos about how you completed this
+                action. An admin will review your submission.
               </AlertDescription>
             </Alert>
           )}
+
+          <Alert>
+            <Camera className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Photo proof is required</strong> for all sustainability actions to ensure authenticity and proper
+              verification.
+            </AlertDescription>
+          </Alert>
 
           {/* Log Form */}
           <Card>
@@ -346,8 +363,8 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
 
                 <div className="space-y-2">
                   <Label htmlFor="photos">
-                    Photos (Optional)
-                    <span className="text-sm text-muted-foreground ml-2">Max 3 photos</span>
+                    Photos <span className="text-destructive">*</span>
+                    <span className="text-sm text-muted-foreground ml-2">Required - Max 3 photos</span>
                   </Label>
                   <div className="space-y-4">
                     <Input
@@ -357,6 +374,7 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
                       multiple
                       onChange={handleFileSelect}
                       className="cursor-pointer"
+                      required
                     />
 
                     {previewUrls.length > 0 && (
@@ -394,7 +412,9 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
                 <div className="flex gap-3">
                   <Button
                     type="submit"
-                    disabled={isSubmitting || (action.verification_required && !notes.trim())}
+                    disabled={
+                      isSubmitting || (action.verification_required && !notes.trim()) || selectedFiles.length === 0 // Disable submit if no photos
+                    }
                     className="flex-1"
                   >
                     {isSubmitting ? "Logging Action..." : "Log Action"}
