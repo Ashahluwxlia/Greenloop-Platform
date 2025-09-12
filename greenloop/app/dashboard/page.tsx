@@ -5,7 +5,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { Leaf, Award, Target, Calendar, Zap, Droplets, Recycle, Car, Plus } from "lucide-react"
+import {
+  Leaf,
+  Award,
+  Target,
+  Calendar,
+  Zap,
+  Droplets,
+  Recycle,
+  Car,
+  Plus,
+  Megaphone,
+  Globe,
+  GraduationCap,
+  BookOpen,
+} from "lucide-react"
 import Link from "next/link"
 
 export default async function DashboardPage() {
@@ -63,6 +77,22 @@ export default async function DashboardPage() {
     .order("created_at", { ascending: false })
     .limit(3)
 
+  const { data: recentAnnouncements } = await supabase
+    .from("content_items")
+    .select("*")
+    .eq("type", "announcement")
+    .eq("status", "published")
+    .order("created_at", { ascending: false })
+    .limit(2)
+
+  const { data: recentEducationalContent } = await supabase
+    .from("content_items")
+    .select("*")
+    .eq("type", "educational")
+    .eq("status", "published")
+    .order("created_at", { ascending: false })
+    .limit(2)
+
   const pointsToNextLevel = (userProfile?.level || 1) * 1000 - (userProfile?.points || 0)
   const levelProgress = ((userProfile?.points || 0) % 1000) / 10
 
@@ -78,6 +108,73 @@ export default async function DashboardPage() {
             <p className="text-muted-foreground text-balance">
               Ready to make a positive impact today? Let's continue your sustainability journey.
             </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {recentAnnouncements && recentAnnouncements.length > 0 && (
+              <Card className="bg-gradient-to-r from-primary/10 to-accent/10 border-primary/20">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Megaphone className="h-5 w-5 text-primary" />
+                    Latest Announcements
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {recentAnnouncements.map((announcement) => (
+                    <div key={announcement.id} className="flex items-start gap-3 p-3 bg-background/50 rounded-lg">
+                      <div className="p-1.5 bg-primary/10 rounded-full flex-shrink-0">
+                        <Globe className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-sm">{announcement.title}</h4>
+                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{announcement.content}</p>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {new Date(announcement.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  <Button variant="outline" size="sm" className="w-full bg-transparent" asChild>
+                    <Link href="/announcements">View All Announcements</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {recentEducationalContent && recentEducationalContent.length > 0 && (
+              <Card className="bg-gradient-to-r from-accent/10 to-secondary/10 border-accent/20">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <GraduationCap className="h-5 w-5 text-accent" />
+                    Latest Educational Content
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {recentEducationalContent.map((content) => (
+                    <div key={content.id} className="flex items-start gap-3 p-3 bg-background/50 rounded-lg">
+                      <div className="p-1.5 bg-accent/10 rounded-full flex-shrink-0">
+                        <BookOpen className="h-4 w-4 text-accent" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-sm">{content.title}</h4>
+                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{content.content}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Badge variant="outline" className="text-xs">
+                            {content.category}
+                          </Badge>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(content.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <Button variant="outline" size="sm" className="w-full bg-transparent" asChild>
+                    <Link href="/education">View All Educational Content</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Stats Overview */}

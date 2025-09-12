@@ -19,7 +19,7 @@ interface ContentItem {
   description?: string
   type: "action" | "announcement" | "educational"
   category: string
-  status: "draft" | "published"
+  status: "draft" | "published" | "archived"
   points?: number
   co2_impact?: number
   tags: string[]
@@ -246,7 +246,7 @@ export default function AdminContentPage() {
     {
       key: "status",
       label: "Status",
-      values: ["published", "draft"], // Removed archived from filter options
+      values: ["published", "draft", "archived"], // Added archived to filter options
     },
   ]
 
@@ -457,6 +457,21 @@ export default function AdminContentPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant="outline">{content.category}</Badge>
+                            <Badge
+                              variant={
+                                content.status === "published"
+                                  ? "default"
+                                  : content.status === "archived"
+                                    ? "destructive"
+                                    : "secondary"
+                              }
+                            >
+                              {content.status === "published"
+                                ? "Published"
+                                : content.status === "archived"
+                                  ? "Archived"
+                                  : "Draft"}
+                            </Badge>
                             <ActionDropdown
                               type="content"
                               onView={() => handleViewContent(content)}
