@@ -114,25 +114,21 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         throw new Error("User not authenticated")
       }
 
-      // Upload photo to storage
       let photoUrl = ""
       if (photoFile) {
         const fileExt = photoFile.name.split(".").pop()
-        const fileName = `${userData.user.id}-${Date.now()}.${fileExt}`
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`
+        const filePath = `${fileName}`
 
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from("action-photos")
-          .upload(fileName, photoFile)
+        const { error: uploadError } = await supabase.storage.from("action-photos").upload(filePath, photoFile)
 
         if (uploadError) {
-          throw new Error("Failed to upload photo")
+          throw new Error(`Failed to upload photo: ${uploadError.message}`)
         }
 
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from("action-photos").getPublicUrl(uploadData.path)
+        const { data: urlData } = supabase.storage.from("action-photos").getPublicUrl(filePath)
 
-        photoUrl = publicUrl
+        photoUrl = urlData.publicUrl
       }
 
       // Create the action submission
@@ -149,6 +145,7 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         is_active: false, // Inactive until approved
         is_user_created: true,
         submitted_by: userData.user.id,
+        photo_url: photoUrl, // Include photo URL in the submission
       })
 
       if (actionError) {
