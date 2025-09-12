@@ -26,7 +26,7 @@ interface ContentItem {
   content: string
   type: "action" | "announcement" | "educational"
   category: string
-  status: "draft" | "published"
+  status: "draft" | "published" | "archived"
   points?: number
   co2_impact?: number
   tags: string[]
@@ -42,9 +42,18 @@ interface ContentCrudModalProps {
   content?: ContentItem | null
   mode: "create" | "edit" | "view"
   currentAdminId?: string
+  restrictedType?: "announcement" | "educational"
 }
 
-export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, currentAdminId }: ContentCrudModalProps) {
+export function ContentCrudModal({
+  isOpen,
+  onClose,
+  onSave,
+  content,
+  mode,
+  currentAdminId,
+  restrictedType,
+}: ContentCrudModalProps) {
   const [formData, setFormData] = useState<ContentItem>({
     title: "",
     content: "",
@@ -91,10 +100,11 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
         tags: content.tags || [],
       })
     } else {
+      const defaultType = restrictedType || "action"
       setFormData({
         title: "",
         content: "",
-        type: "action",
+        type: defaultType,
         category: "",
         status: "draft",
         points: 0,
@@ -102,7 +112,7 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
         tags: [],
       })
     }
-  }, [content, isOpen])
+  }, [content, isOpen, restrictedType])
 
   const logAdminActivity = async (action: string, targetId: string, details: any) => {
     if (!currentAdminId) return
@@ -135,6 +145,8 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
           let isActive: boolean
           if (formData.status === "published") {
             isActive = true
+          } else if (formData.status === "archived") {
+            isActive = false
           } else {
             isActive = false // Only draft is inactive now
           }
@@ -201,6 +213,8 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
           let isActive: boolean
           if (formData.status === "published") {
             isActive = true
+          } else if (formData.status === "archived") {
+            isActive = false
           } else {
             isActive = false // Only draft is inactive now
           }
@@ -335,15 +349,19 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
               <Select
                 value={formData.type}
                 onValueChange={(value: ContentItem["type"]) => setFormData((prev) => ({ ...prev, type: value }))}
-                disabled={isReadOnly}
+                disabled={isReadOnly || !!restrictedType} // Disable type selection if restricted
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select content type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="action">Sustainability Action</SelectItem>
-                  <SelectItem value="announcement">Announcement</SelectItem>
-                  <SelectItem value="educational">Educational Content</SelectItem>
+                  {(!restrictedType || restrictedType === "announcement") && (
+                    <SelectItem value="announcement">Announcement</SelectItem>
+                  )}
+                  {(!restrictedType || restrictedType === "educational") && (
+                    <SelectItem value="educational">Educational Content</SelectItem>
+                  )}
+                  {!restrictedType && <SelectItem value="action">Sustainability Action</SelectItem>}
                 </SelectContent>
               </Select>
             </div>
@@ -406,6 +424,7 @@ export function ContentCrudModal({ isOpen, onClose, onSave, content, mode, curre
                 <SelectContent>
                   <SelectItem value="draft">Draft</SelectItem>
                   <SelectItem value="published">Published</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
                 </SelectContent>
               </Select>
             </div>

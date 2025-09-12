@@ -8,7 +8,22 @@ import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Leaf, Home, Target, Users, Award, BarChart3, Settings, Menu, LogOut, User, Trophy, Shield } from "lucide-react"
+import {
+  Leaf,
+  Home,
+  Target,
+  Users,
+  Award,
+  BarChart3,
+  Settings,
+  Menu,
+  LogOut,
+  User,
+  Trophy,
+  Shield,
+  Megaphone,
+  GraduationCap,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface NavigationProps {
@@ -44,6 +59,16 @@ const navigationItems = [
     title: "Challenges",
     href: "/challenges",
     icon: Trophy,
+  },
+  {
+    title: "Announcements",
+    href: "/announcements",
+    icon: Megaphone,
+  },
+  {
+    title: "Education",
+    href: "/education",
+    icon: GraduationCap,
   },
   {
     title: "Analytics",
