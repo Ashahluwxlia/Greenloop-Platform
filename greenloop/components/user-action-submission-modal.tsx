@@ -50,12 +50,14 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
 
   useEffect(() => {
     async function loadCategories() {
-      const { data } = await supabase
+      console.log("[v0] Loading categories...")
+      const { data, error } = await supabase
         .from("action_categories")
         .select("id, name, color")
         .eq("is_active", true)
         .order("name")
 
+      console.log("[v0] Categories loaded:", { data, error })
       setCategories(data || [])
     }
 
@@ -65,12 +67,25 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
   }, [isOpen, supabase])
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("[v0] Photo change event triggered")
     const file = e.target.files?.[0]
+    console.log("[v0] Selected file:", {
+      name: file?.name,
+      size: file?.size,
+      type: file?.type,
+    })
+
     if (file) {
       setPhotoFile(file)
+      console.log("[v0] Photo file set, creating preview...")
+
       const reader = new FileReader()
       reader.onload = (e) => {
+        console.log("[v0] FileReader loaded successfully")
         setPhotoPreview(e.target?.result as string)
+      }
+      reader.onerror = (e) => {
+        console.error("[v0] FileReader error:", e)
       }
       reader.readAsDataURL(file)
       setErrors((prev) => ({ ...prev, photo: "" }))
@@ -78,6 +93,9 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
   }
 
   const validateForm = () => {
+    console.log("[v0] Validating form with data:", formData)
+    console.log("[v0] Photo file present:", !!photoFile)
+
     const newErrors: Record<string, string> = {}
 
     if (!formData.title.trim()) {
@@ -93,14 +111,17 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
       newErrors.photo = "Photo proof is required"
     }
 
+    console.log("[v0] Validation errors:", newErrors)
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    console.log("[v0] Form submission started")
 
     if (!validateForm()) {
+      console.log("[v0] Form validation failed, stopping submission")
       return
     }
 
@@ -108,31 +129,62 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
     setSubmitStatus("idle")
 
     try {
+      console.log("[v0] Getting current user...")
       // Get current user
       const { data: userData, error: userError } = await supabase.auth.getUser()
+      console.log("[v0] User data:", { userData: userData?.user?.id, error: userError })
+
       if (userError || !userData?.user) {
         throw new Error("User not authenticated")
       }
 
       let photoUrl = ""
       if (photoFile) {
+        console.log("[v0] Starting photo upload process...")
         const fileExt = photoFile.name.split(".").pop()
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`
         const filePath = `${fileName}`
 
-        const { error: uploadError } = await supabase.storage.from("action-photos").upload(filePath, photoFile)
+        console.log("[v0] Upload details:", { fileName, filePath, fileSize: photoFile.size })
+
+        console.log("[v0] Uploading to Supabase storage...")
+        const { error: uploadError, data: uploadData } = await supabase.storage
+          .from("action-photos")
+          .upload(filePath, photoFile)
+
+        console.log("[v0] Upload result:", { uploadError, uploadData })
 
         if (uploadError) {
+          console.error("[v0] Upload failed:", uploadError)
           throw new Error(`Failed to upload photo: ${uploadError.message}`)
         }
 
+        console.log("[v0] Getting public URL...")
         const { data: urlData } = supabase.storage.from("action-photos").getPublicUrl(filePath)
+        console.log("[v0] Public URL data:", urlData)
 
         photoUrl = urlData.publicUrl
+        console.log("[v0] Final photo URL:", photoUrl)
       }
 
       // Create the action submission
-      const { error: actionError } = await supabase.from("sustainability_actions").insert({
+      console.log("[v0] Creating action submission with data:", {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        instructions: formData.instructions.trim() || null,
+        category_id: formData.categoryId,
+        points_value: 0,
+        co2_impact: 0,
+        difficulty_level: 1,
+        estimated_time_minutes: null,
+        verification_required: true,
+        is_active: false,
+        is_user_created: true,
+        submitted_by: userData.user.id,
+        photo_url: photoUrl,
+      })
+
+      const { error: actionError, data: actionData } = await supabase.from("sustainability_actions").insert({
         title: formData.title.trim(),
         description: formData.description.trim(),
         instructions: formData.instructions.trim() || null,
@@ -148,9 +200,14 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         photo_url: photoUrl, // Include photo URL in the submission
       })
 
+      console.log("[v0] Action insert result:", { actionError, actionData })
+
       if (actionError) {
+        console.error("[v0] Action insert failed:", actionError)
         throw new Error("Failed to submit action")
       }
+
+      console.log("[v0] Action submitted successfully!")
 
       // Reset form
       setFormData({
@@ -171,10 +228,11 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         onSubmissionSuccess?.()
       }, 2000)
     } catch (error) {
-      console.error("Submission error:", error)
+      console.error("[v0] Submission error:", error)
       setSubmitStatus("error")
     } finally {
       setIsSubmitting(false)
+      console.log("[v0] Submission process completed")
     }
   }
 
