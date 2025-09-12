@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("Validation passed:", validationResult.data)
-    const { action_id, notes, has_photos } = validationResult.data
+    const { action_id, notes, has_photos, photo_url } = validationResult.data
 
     if (!has_photos) {
       return createErrorResponse({
@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
         co2_saved: action.co2_impact,
         notes: notes || null,
         verification_status: "pending", // All actions now require verification
+        photo_url: photo_url || null,
       })
       .select()
       .single()

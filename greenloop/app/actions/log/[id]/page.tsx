@@ -112,23 +112,31 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
     }
   }, [previewUrls])
 
-  const uploadPhotos = async (actionLogId: string) => {
+  const uploadPhotos = async () => {
     if (selectedFiles.length === 0) return []
 
     const uploadPromises = selectedFiles.map(async (file, index) => {
       const fileExt = file.name.split(".").pop()
-      const fileName = `${actionLogId}_${index}.${fileExt}`
-      const filePath = `action-photos/${fileName}`
+      const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(2)}_${index}.${fileExt}`
+      const filePath = fileName
 
-      const { error: uploadError } = await supabase.storage.from("action-photos").upload(filePath, file)
+      console.log("[v0] Uploading file:", { fileName, filePath, fileSize: file.size })
 
-      if (uploadError) throw uploadError
+      const { error: uploadError, data: uploadData } = await supabase.storage
+        .from("action-photos")
+        .upload(filePath, file)
 
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("action-photos").getPublicUrl(filePath)
+      console.log("[v0] Upload result:", { uploadError, uploadData })
 
-      return publicUrl
+      if (uploadError) {
+        console.error("[v0] Upload failed:", uploadError)
+        throw new Error(`Failed to upload photo: ${uploadError.message}`)
+      }
+
+      const { data: urlData } = supabase.storage.from("action-photos").getPublicUrl(filePath)
+      console.log("[v0] Public URL data:", urlData)
+
+      return urlData.publicUrl
     })
 
     return Promise.all(uploadPromises)
@@ -152,6 +160,18 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
     setError(null)
 
     try {
+      console.log("[v0] Starting photo upload before API call...")
+      let photoUrls: string[] = []
+
+      try {
+        photoUrls = await uploadPhotos()
+        console.log("[v0] Photos uploaded successfully:", photoUrls)
+      } catch (photoError) {
+        console.error("[v0] Photo upload failed:", photoError)
+        setError("Failed to upload photos. Please try again.")
+        return
+      }
+
       const response = await fetch("/api/actions/log", {
         method: "POST",
         headers: {
@@ -160,7 +180,8 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
         body: JSON.stringify({
           action_id: action.id,
           notes: notes.trim() || null,
-          has_photos: selectedFiles.length > 0,
+          has_photos: photoUrls.length > 0,
+          photo_url: photoUrls[0] || null, // Include photo URL in initial request
         }),
       })
 
@@ -170,17 +191,7 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
         throw new Error(result.error || "Failed to log action")
       }
 
-      // Upload photos (now mandatory)
-      try {
-        const photoUrls = await uploadPhotos(result.userAction.id)
-
-        // Update the user action with photo URLs
-        await supabase.from("user_actions").update({ photo_url: photoUrls[0] }).eq("id", result.userAction.id)
-      } catch (photoError) {
-        console.error("Photo upload failed:", photoError)
-        setError("Failed to upload photos. Please try again.")
-        return
-      }
+      console.log("[v0] Action logged successfully with photos")
 
       setSuccess(true)
 
@@ -238,14 +249,14 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
                 </div>
                 <CardTitle className="text-xl">Action Logged Successfully!</CardTitle>
                 <CardDescription>
-                  You've earned {action.points_value} points and saved {action.co2_impact}kg of CO₂
+                  Your action has been submitted for review. Upon approval, you'll earn {action.points_value} points and
+                  save {action.co2_impact}kg of CO₂
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  {action.verification_required
-                    ? "Your action is pending verification by an admin."
-                    : "Your points have been added to your account."}
+                  An admin will review your submission and verify the completed action. Points will be added to your
+                  account once approved.
                 </p>
                 <Button asChild className="w-full">
                   <Link href="/dashboard">Return to Dashboard</Link>

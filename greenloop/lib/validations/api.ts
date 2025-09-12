@@ -13,6 +13,7 @@ export const logActionSchema = z.object({
   action_id: z.string().uuid("Invalid action ID"),
   notes: z.string().max(500, "Notes cannot exceed 500 characters").nullable().optional(),
   has_photos: z.boolean().optional(),
+  photo_url: z.string().url("Invalid photo URL").nullable().optional(),
 })
 
 // Sustainability action validation

@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
       // Handle user-submitted action approval
       const { data: action, error: actionError } = await supabase
         .from("sustainability_actions")
-        .select("*, users!submitted_by(*)")
+        .select("*")
         .eq("id", actionId)
         .eq("is_user_created", true)
         .single()
@@ -22,6 +22,20 @@ export async function POST(request: NextRequest) {
         return createErrorResponse({
           message: "Action submission not found",
           code: "ACTION_NOT_FOUND",
+          status: 404,
+        })
+      }
+
+      const { data: submittedByUser, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", action.submitted_by)
+        .single()
+
+      if (userError || !submittedByUser) {
+        return createErrorResponse({
+          message: "Submitter user not found",
+          code: "USER_NOT_FOUND",
           status: 404,
         })
       }
@@ -103,10 +117,12 @@ export async function POST(request: NextRequest) {
         message: "Action approved and auto-logged for submitter",
       })
     } else {
-      // Handle regular action log approval
-      const { data: actionLog, error: logError } = await supabase
+      const adminSupabase = createAdminClient()
+
+      // Fetch action log separately to avoid RLS issues
+      const { data: actionLog, error: logError } = await adminSupabase
         .from("user_actions")
-        .select("*, users(*), sustainability_actions(*)")
+        .select("*")
         .eq("id", actionLogId)
         .single()
 
@@ -118,8 +134,17 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      // Fetch user and action data separately
+      const { data: user_data } = await adminSupabase.from("users").select("*").eq("id", actionLog.user_id).single()
+
+      const { data: action_data } = await adminSupabase
+        .from("sustainability_actions")
+        .select("*")
+        .eq("id", actionLog.action_id)
+        .single()
+
       // Update verification status
-      const { error: updateError } = await supabase
+      const { error: updateError } = await adminSupabase
         .from("user_actions")
         .update({
           verification_status: "approved",
@@ -137,9 +162,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Award points and update CO2 totals
-      const adminSupabase = createAdminClient()
-
-      const { data: userProfile } = await supabase
+      const { data: userProfile } = await adminSupabase
         .from("users")
         .select("points, total_co2_saved")
         .eq("id", actionLog.user_id)
@@ -161,7 +184,7 @@ export async function POST(request: NextRequest) {
           transaction_type: "earned",
           reference_type: "action",
           reference_id: actionLogId,
-          description: `Completed: ${actionLog.sustainability_actions.title}`,
+          description: `Completed: ${action_data?.title || "Sustainability Action"}`,
         })
       }
 
