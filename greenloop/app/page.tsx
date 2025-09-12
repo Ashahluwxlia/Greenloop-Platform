@@ -9,21 +9,21 @@ export default function LandingPage() {
       {/* Header */}
       <header
         className="sticky top-0 z-50 w-full border-b border-border backdrop-blur supports-[backdrop-filter]:bg-background/60"
-        style={{ backgroundColor: "#2596be" }}
+        style={{ backgroundColor: "#469cd3" }}
       >
         <div className="container flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <div className="p-1.5 bg-white/20 rounded-lg">
               <Leaf className="h-5 w-5 text-white" />
             </div>
-            <span className="font-bold text-xl text-white">Greenloop</span>
+            <span className="font-bold text-xl text-white">2degrees</span>
           </div>
 
           <div className="flex items-center gap-4">
             <Button variant="ghost" className="text-white hover:bg-white/20 hover:text-white" asChild>
               <Link href="/auth/login">Sign In</Link>
             </Button>
-            <Button className="bg-white text-[#2596be] hover:bg-white/90" asChild>
+            <Button className="bg-white text-[#469cd3] hover:bg-white/90" asChild>
               <Link href="/auth/register">Get Started</Link>
             </Button>
           </div>
@@ -33,7 +33,7 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section
         className="h-screen min-h-[600px] flex items-center relative overflow-hidden"
-        style={{ backgroundColor: "#2596be" }}
+        style={{ backgroundColor: "#469cd3" }}
       >
         <div className="container px-4 mx-auto relative z-10">
           <div className="grid lg:grid-cols-2 gap-12 items-center h-full">
@@ -50,7 +50,7 @@ export default function LandingPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-4">
-                <Button size="lg" className="text-lg px-8 bg-white text-[#2596be] hover:bg-white/90" asChild>
+                <Button size="lg" className="text-lg px-8 bg-white text-[#469cd3] hover:bg-white/90" asChild>
                   <Link href="/auth/register">
                     Join the Movement
                     <ArrowRight className="ml-2 h-5 w-5" />
@@ -110,9 +110,9 @@ export default function LandingPage() {
               <CardHeader>
                 <div
                   className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
-                  style={{ backgroundColor: "#2596be20" }}
+                  style={{ backgroundColor: "#469cd320" }}
                 >
-                  <Leaf className="h-6 w-6" style={{ color: "#2596be" }} />
+                  <Leaf className="h-6 w-6" style={{ color: "#469cd3" }} />
                 </div>
                 <CardTitle>Care for the Environment</CardTitle>
                 <CardDescription>
@@ -125,9 +125,9 @@ export default function LandingPage() {
               <CardHeader>
                 <div
                   className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
-                  style={{ backgroundColor: "#2596be20" }}
+                  style={{ backgroundColor: "#469cd320" }}
                 >
-                  <Users className="h-6 w-6" style={{ color: "#2596be" }} />
+                  <Users className="h-6 w-6" style={{ color: "#469cd3" }} />
                 </div>
                 <CardTitle>Step Up for the Community</CardTitle>
                 <CardDescription>
@@ -140,9 +140,9 @@ export default function LandingPage() {
               <CardHeader>
                 <div
                   className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
-                  style={{ backgroundColor: "#2596be20" }}
+                  style={{ backgroundColor: "#469cd320" }}
                 >
-                  <Target className="h-6 w-6" style={{ color: "#2596be" }} />
+                  <Target className="h-6 w-6" style={{ color: "#469cd3" }} />
                 </div>
                 <CardTitle>Partner for Good</CardTitle>
                 <CardDescription>
@@ -155,9 +155,9 @@ export default function LandingPage() {
               <CardHeader>
                 <div
                   className="w-12 h-12 rounded-lg flex items-center justify-center mb-4"
-                  style={{ backgroundColor: "#2596be20" }}
+                  style={{ backgroundColor: "#469cd320" }}
                 >
-                  <Award className="h-6 w-6" style={{ color: "#2596be" }} />
+                  <Award className="h-6 w-6" style={{ color: "#469cd3" }} />
                 </div>
                 <CardTitle>Empower a Thriving Team</CardTitle>
                 <CardDescription>
@@ -183,7 +183,7 @@ export default function LandingPage() {
             <div className="text-center space-y-4">
               <div
                 className="w-16 h-16 rounded-full flex items-center justify-center mx-auto text-2xl font-bold text-white"
-                style={{ backgroundColor: "#2596be" }}
+                style={{ backgroundColor: "#469cd3" }}
               >
                 1
               </div>
@@ -196,7 +196,7 @@ export default function LandingPage() {
             <div className="text-center space-y-4">
               <div
                 className="w-16 h-16 rounded-full flex items-center justify-center mx-auto text-2xl font-bold text-white"
-                style={{ backgroundColor: "#2596be" }}
+                style={{ backgroundColor: "#469cd3" }}
               >
                 2
               </div>
@@ -210,7 +210,7 @@ export default function LandingPage() {
             <div className="text-center space-y-4">
               <div
                 className="w-16 h-16 rounded-full flex items-center justify-center mx-auto text-2xl font-bold text-white"
-                style={{ backgroundColor: "#2596be" }}
+                style={{ backgroundColor: "#469cd3" }}
               >
                 3
               </div>
@@ -238,7 +238,7 @@ export default function LandingPage() {
 
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
-                  <Leaf className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#2596be" }} />
+                  <Leaf className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#469cd3" }} />
                   <div>
                     <h4 className="font-semibold">Employee Engagement</h4>
                     <p className="text-muted-foreground">
@@ -248,7 +248,7 @@ export default function LandingPage() {
                 </div>
 
                 <div className="flex items-start gap-3">
-                  <BarChart3 className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#2596be" }} />
+                  <BarChart3 className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#469cd3" }} />
                   <div>
                     <h4 className="font-semibold">Measure Real Impact</h4>
                     <p className="text-muted-foreground">
@@ -258,7 +258,7 @@ export default function LandingPage() {
                 </div>
 
                 <div className="flex items-start gap-3">
-                  <Users className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#2596be" }} />
+                  <Users className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#469cd3" }} />
                   <div>
                     <h4 className="font-semibold">Community Connection</h4>
                     <p className="text-muted-foreground">
@@ -268,7 +268,7 @@ export default function LandingPage() {
                 </div>
 
                 <div className="flex items-start gap-3">
-                  <CheckCircle className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#2596be" }} />
+                  <CheckCircle className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#469cd3" }} />
                   <div>
                     <h4 className="font-semibold">Corporate Social Responsibility</h4>
                     <p className="text-muted-foreground">
@@ -282,7 +282,7 @@ export default function LandingPage() {
             <div className="relative">
               <div
                 className="aspect-square rounded-2xl p-8 flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #2596be20, #2596be10)" }}
+                style={{ background: "linear-gradient(135deg, #469cd320, #469cd310)" }}
               >
                 <img
                   src="/office-team-celebrating-sustainability-achievement.jpg"
@@ -307,19 +307,22 @@ export default function LandingPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button size="lg" className="text-lg px-8 text-white" style={{ backgroundColor: "#2596be" }} asChild>
+              <Button size="lg" className="text-lg px-8 text-white" style={{ backgroundColor: "#469cd3" }} asChild>
                 <Link href="/auth/register">
                   <Zap className="mr-2 h-5 w-5" />
-                  Get Started with 2degrees Sustainability Hub
+                  Get Started with Greenloop Sustainability Platform
                 </Link>
               </Button>
               <Button
                 variant="outline"
                 size="lg"
-                className="text-lg px-8 bg-transparent border-[#2596be] text-[#2596be] hover:bg-[#2596be]/10"
+                className="text-lg px-8 bg-transparent border-[#469cd3] text-[#469cd3] hover:bg-[#469cd3]/10"
                 asChild
               >
-                <Link href="#" target="_blank">
+                <Link
+                  href="https://www.2degrees.nz/sites/default/files/2024-12/2degrees_Community_Impact_Report_2024.pdf"
+                  target="_blank"
+                >
                   Learn More from our Community Impact Report
                 </Link>
               </Button>
@@ -331,99 +334,6 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
-
-      {/* Footer */}
-      <footer className="border-t border-border bg-muted/30">
-        <div className="container px-4 py-12 mx-auto">
-          <div className="grid md:grid-cols-4 gap-8">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg" style={{ backgroundColor: "#2596be" }}>
-                  <Leaf className="h-5 w-5 text-white" />
-                </div>
-                <span className="font-bold text-lg">2degrees</span>
-              </div>
-              <p className="text-muted-foreground text-sm">
-                Fighting for fair and building a sustainable future for all New Zealanders through digital equity and
-                environmental action.
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <h4 className="font-semibold">Product</h4>
-              <div className="space-y-2 text-sm">
-                <Link
-                  href="/auth/login"
-                  className="block text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Dashboard
-                </Link>
-                <Link
-                  href="/auth/login"
-                  className="block text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Challenges
-                </Link>
-                <Link
-                  href="/auth/login"
-                  className="block text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Analytics
-                </Link>
-                <Link
-                  href="/auth/login"
-                  className="block text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Teams
-                </Link>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h4 className="font-semibold">Company</h4>
-              <div className="space-y-2 text-sm">
-                <Link href="#" className="block text-muted-foreground hover:text-foreground transition-colors">
-                  About Us
-                </Link>
-                <Link href="#" className="block text-muted-foreground hover:text-foreground transition-colors">
-                  Contact
-                </Link>
-                <Link href="#" className="block text-muted-foreground hover:text-foreground transition-colors">
-                  Privacy Policy
-                </Link>
-                <Link href="#" className="block text-muted-foreground hover:text-foreground transition-colors">
-                  Terms of Service
-                </Link>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h4 className="font-semibold">Support</h4>
-              <div className="space-y-2 text-sm">
-                <Link href="#" className="block text-muted-foreground hover:text-foreground transition-colors">
-                  Help Center
-                </Link>
-                <Link href="#" className="block text-muted-foreground hover:text-foreground transition-colors">
-                  Documentation
-                </Link>
-                <Link href="#" className="block text-muted-foreground hover:text-foreground transition-colors">
-                  Community
-                </Link>
-                <Link
-                  href="/auth/register"
-                  className="block text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Get Started
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-border mt-12 pt-8 text-center text-sm text-muted-foreground">
-            <p>&copy; 2025 2degrees. All rights reserved. Fighting for fair, building a sustainable future.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   )
 }
