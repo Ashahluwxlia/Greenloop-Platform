@@ -1,5 +1,5 @@
 
-\restrict hD1NR6hazHhyJpcKHnacqvWAvQhuzmAXWH0Ad9LvigPaRml9SsjFaIPmvA3kMht
+\restrict NoWzB45JzC6njWf4HRQJf6FbcDjgzsimabw4MhkX8GoUxBEoVHJxVh0gXzjlmPr
 
 
 SET statement_timeout = 0;
@@ -2935,10 +2935,6 @@ CREATE POLICY "Admins can view all preferences" ON "public"."user_preferences" F
 
 
 
-CREATE POLICY "Users can create their own actions" ON "public"."sustainability_actions" FOR INSERT WITH CHECK ((("auth"."uid"() = "submitted_by") AND ("is_user_created" = true) AND ("is_active" = false) AND ("verification_required" = true)));
-
-
-
 CREATE POLICY "Users can insert their own preferences" ON "public"."user_preferences" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
 
 
@@ -2951,11 +2947,11 @@ CREATE POLICY "Users can update their rejected submissions" ON "public"."sustain
 
 
 
+CREATE POLICY "Users can view active actions and own submissions" ON "public"."sustainability_actions" FOR SELECT USING ((("is_active" = true) OR (("is_user_created" = true) AND ("submitted_by" = "auth"."uid"()))));
+
+
+
 CREATE POLICY "Users can view their own preferences" ON "public"."user_preferences" FOR SELECT USING (("user_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "Users can view their own submitted actions" ON "public"."sustainability_actions" FOR SELECT USING ((("is_active" = true) OR (("is_user_created" = true) AND ("submitted_by" = "auth"."uid"()))));
 
 
 
@@ -3260,15 +3256,15 @@ CREATE POLICY "sustainability_actions_admin_delete" ON "public"."sustainability_
 
 
 
-CREATE POLICY "sustainability_actions_admin_insert" ON "public"."sustainability_actions" FOR INSERT WITH CHECK ("public"."is_admin"());
-
-
-
 CREATE POLICY "sustainability_actions_admin_update" ON "public"."sustainability_actions" FOR UPDATE USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
 
 
 
-CREATE POLICY "sustainability_actions_select_all" ON "public"."sustainability_actions" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
+CREATE POLICY "sustainability_actions_insert_policy" ON "public"."sustainability_actions" FOR INSERT WITH CHECK (("public"."is_admin"() OR (("auth"."uid"() = "submitted_by") AND ("is_user_created" = true) AND ("is_active" = false) AND ("verification_required" = true))));
+
+
+
+CREATE POLICY "sustainability_actions_select_policy" ON "public"."sustainability_actions" FOR SELECT USING (((("auth"."role"() = 'authenticated'::"text") AND ("is_active" = true)) OR (("auth"."uid"() = "submitted_by") AND ("is_user_created" = true)) OR "public"."is_admin"()));
 
 
 
@@ -4156,6 +4152,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict hD1NR6hazHhyJpcKHnacqvWAvQhuzmAXWH0Ad9LvigPaRml9SsjFaIPmvA3kMht
+\unrestrict NoWzB45JzC6njWf4HRQJf6FbcDjgzsimabw4MhkX8GoUxBEoVHJxVh0gXzjlmPr
 
 RESET ALL;
