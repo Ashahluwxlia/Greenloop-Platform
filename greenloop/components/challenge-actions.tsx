@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Target, UserMinus, Loader2, CheckCircle, Clock, Users } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 interface ChallengeActionsProps {
@@ -16,6 +15,7 @@ interface ChallengeActionsProps {
   targetValue?: number
   targetMetric?: string
   canJoinLeave?: boolean
+  onParticipationChange?: (challengeId: string, isParticipating: boolean) => void
 }
 
 export function ChallengeActions({
@@ -28,9 +28,10 @@ export function ChallengeActions({
   targetValue = 0,
   targetMetric = "actions",
   canJoinLeave = true,
+  onParticipationChange,
 }: ChallengeActionsProps) {
   const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
+  const [localIsParticipating, setLocalIsParticipating] = useState(isParticipating)
 
   const handleJoinChallenge = async () => {
     setIsLoading(true)
@@ -49,7 +50,8 @@ export function ChallengeActions({
         description: "You can now start logging actions to make progress.",
       })
 
-      router.refresh()
+      setLocalIsParticipating(true)
+      onParticipationChange?.(challengeId, true)
     } catch (error) {
       console.error("Error joining challenge:", error)
       toast.error(error instanceof Error ? error.message : "Failed to join challenge")
@@ -72,7 +74,9 @@ export function ChallengeActions({
       }
 
       toast.success("Successfully left challenge!")
-      router.refresh()
+
+      setLocalIsParticipating(false)
+      onParticipationChange?.(challengeId, false)
     } catch (error) {
       console.error("Error leaving challenge:", error)
       toast.error(error instanceof Error ? error.message : "Failed to leave challenge")
@@ -112,7 +116,7 @@ export function ChallengeActions({
           <Clock className="h-4 w-4" />
           Challenge Ended
         </Button>
-        {isParticipating && (
+        {localIsParticipating && (
           <p className="text-sm text-muted-foreground text-center">
             Final progress: {userProgress}/{targetValue} {targetMetric}
           </p>
@@ -133,7 +137,7 @@ export function ChallengeActions({
     )
   }
 
-  if (isParticipating) {
+  if (localIsParticipating) {
     const progressPercentage = targetValue > 0 ? Math.round((userProgress / targetValue) * 100) : 0
 
     return (

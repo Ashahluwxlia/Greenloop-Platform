@@ -4,7 +4,6 @@ import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Target, UserMinus, Loader2, Eye, CheckCircle, Clock, Users } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +24,7 @@ interface ChallengeCardActionsProps {
   challengeCreatedBy?: string
   currentUserId?: string
   isUserInTeam?: boolean
+  onParticipationChange?: (challengeId: string, isParticipating: boolean) => void
 }
 
 export function ChallengeCardActions({
@@ -42,9 +42,10 @@ export function ChallengeCardActions({
   challengeCreatedBy,
   currentUserId,
   isUserInTeam = false,
+  onParticipationChange,
 }: ChallengeCardActionsProps) {
   const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
+  const [localIsParticipating, setLocalIsParticipating] = useState(isParticipating)
 
   const handleJoinChallenge = async (e: React.MouseEvent) => {
     e.preventDefault()
@@ -64,7 +65,8 @@ export function ChallengeCardActions({
         description: "You can now start making progress!",
       })
 
-      router.refresh()
+      setLocalIsParticipating(true)
+      onParticipationChange?.(challengeId, true)
     } catch (error) {
       console.error("Error joining challenge:", error)
       toast.error(error instanceof Error ? error.message : "Failed to join challenge")
@@ -88,7 +90,9 @@ export function ChallengeCardActions({
       }
 
       toast.success("Successfully left challenge!")
-      router.refresh()
+
+      setLocalIsParticipating(false)
+      onParticipationChange?.(challengeId, false)
     } catch (error) {
       console.error("Error leaving challenge:", error)
       toast.error(error instanceof Error ? error.message : "Failed to leave challenge")
@@ -116,10 +120,11 @@ export function ChallengeCardActions({
   }
 
   const showJoinLeaveButtons = shouldShowJoinLeave()
+  const currentlyParticipating = localIsParticipating
 
   return (
     <div className="space-y-3">
-      {isParticipating && !challengeEnded && (
+      {currentlyParticipating && !challengeEnded && (
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Your Progress</span>
           <div className="flex items-center gap-2">
@@ -176,7 +181,7 @@ export function ChallengeCardActions({
             <Eye className="h-4 w-4" />
             View Only
           </Button>
-        ) : isParticipating ? (
+        ) : currentlyParticipating ? (
           <Button
             variant="outline"
             onClick={handleLeaveChallenge}
