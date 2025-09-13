@@ -68,13 +68,23 @@ export default async function AdminDashboard() {
   const actionGrowth = dashboardStats?.actions_30d || 0
 
   const enhancedUserStats = dashboardStats
+    ? {
+        total_users: dashboardStats.total_users || dashboardStats.active_users || 0,
+        active_users: dashboardStats.active_users || 0,
+        admin_users: dashboardStats.admin_users || 0,
+        avg_points: dashboardStats.avg_points || 0,
+        total_co2_saved: Math.round(dashboardStats.total_co2_saved || 0),
+      }
+    : undefined
 
   const enhancedChallengeStats = dashboardStats
     ? {
         total_challenges: dashboardStats.active_challenges || 0,
         active_challenges: dashboardStats.active_challenges || 0,
-        avg_completion_rate: dashboardStats.completed_challenges || 0,
-        total_participants: dashboardStats.completed_challenges || 0,
+        avg_completion_rate: dashboardStats.completed_challenges
+          ? Math.round((dashboardStats.completed_challenges / Math.max(dashboardStats.active_challenges, 1)) * 100)
+          : 0,
+        completed_challenges: dashboardStats.completed_challenges || 0,
       }
     : undefined
 
@@ -82,27 +92,30 @@ export default async function AdminDashboard() {
     ? {
         total_teams: dashboardStats.active_teams || 0,
         active_teams: dashboardStats.active_teams || 0,
-        avg_team_size: dashboardStats.avg_team_points || 0,
+        avg_team_size:
+          dashboardStats.active_teams > 0 ? Math.round(dashboardStats.active_users / dashboardStats.active_teams) : 0,
         top_performing_teams: topTeams || [],
       }
     : undefined
 
   function getCategoryColor(category: string) {
     const colors: { [key: string]: string } = {
-      Energy: "#0891b2", // cyan-600
-      Transportation: "#d97706", // amber-600
-      Waste: "#34d399", // emerald-400
-      Water: "#fbbf24", // amber-400
-      Food: "#f87171", // red-400
-      "Food & Diet": "#ef4444", // red-500
-      "Office Practices": "#8b5cf6", // violet-500
-      Office: "#8b5cf6", // violet-500
-      "Home & Garden": "#10b981", // emerald-500
-      Community: "#f59e0b", // amber-500
-      Digital: "#06b6d4", // cyan-500
-      Shopping: "#ec4899", // pink-500
-      "Health & Wellness": "#84cc16", // lime-500
-      Other: "#9ca3af", // gray-400
+      Energy: "#4ECDC4", // Turquoise
+      Transportation: "#FF6B6B", // Coral Red
+      Waste: "#96CEB4", // Mint Green
+      "Waste Reduction": "#96CEB4", // Mint Green
+      Water: "#F7DC6F", // Light Gold
+      "Water Conservation": "#F7DC6F", // Light Gold
+      Food: "#F8C471", // Peach
+      "Food & Diet": "#F8C471", // Peach
+      "Office Practices": "#BB8FCE", // Lavender
+      Office: "#BB8FCE", // Lavender
+      "Home & Garden": "#82E0AA", // Light Green
+      Community: "#FFEAA7", // Soft Yellow
+      Digital: "#85C1E9", // Light Blue
+      Shopping: "#DDA0DD", // Plum
+      "Health & Wellness": "#98D8C8", // Seafoam
+      Other: "#9CA3AF", // Gray
     }
     return colors[category] || colors["Other"]
   }
@@ -130,7 +143,7 @@ export default async function AdminDashboard() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{dashboardStats?.active_users || 0}</div>
+              <div className="text-2xl font-bold">{enhancedUserStats?.total_users || 0}</div>
               <div className="flex items-center gap-2 mt-2">
                 <div className="flex items-center text-xs text-emerald-600">
                   <ArrowUpRight className="h-3 w-3 mr-1" />+{userGrowth} this month
@@ -180,9 +193,7 @@ export default async function AdminDashboard() {
               <Leaf className="h-4 w-4 text-emerald-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-emerald-600">
-                {Math.round(dashboardStats?.total_co2_saved || 0)}kg
-              </div>
+              <div className="text-2xl font-bold text-emerald-600">{enhancedUserStats?.total_co2_saved}kg</div>
               <div className="flex items-center gap-2 mt-2">
                 <div className="flex items-center text-xs text-emerald-600">
                   <ArrowUpRight className="h-3 w-3 mr-1" />+{actionGrowth} actions this month

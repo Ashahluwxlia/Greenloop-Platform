@@ -15,7 +15,20 @@ import {
   Bar,
 } from "recharts"
 
-const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8"]
+const COLORS = [
+  "#FF6B6B", // Coral Red
+  "#4ECDC4", // Turquoise
+  "#45B7D1", // Sky Blue
+  "#96CEB4", // Mint Green
+  "#FFEAA7", // Soft Yellow
+  "#DDA0DD", // Plum
+  "#98D8C8", // Seafoam
+  "#F7DC6F", // Light Gold
+  "#BB8FCE", // Lavender
+  "#85C1E9", // Light Blue
+  "#F8C471", // Peach
+  "#82E0AA", // Light Green
+]
 
 interface TrendData {
   month: string
@@ -46,7 +59,7 @@ interface ChallengeStatsData {
   total_challenges: number
   active_challenges: number
   avg_completion_rate: number
-  total_participants: number
+  completed_challenges: number
 }
 
 interface TeamStatsData {
@@ -112,7 +125,9 @@ export function DashboardCharts({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm">Avg Points:</span>
-                  <span className="font-medium">{Math.round(userStats.avg_points)}</span>
+                  <span className="font-medium">
+                    {userStats.avg_points && !isNaN(userStats.avg_points) ? Math.round(userStats.avg_points) : "N/A"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm">Total CO₂ Saved:</span>
@@ -136,11 +151,11 @@ export function DashboardCharts({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm">Completion Rate:</span>
-                  <span className="font-medium">{Math.round(challengeStats.avg_completion_rate)}%</span>
+                  <span className="font-medium">{challengeStats.avg_completion_rate}%</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm">Participants:</span>
-                  <span className="font-medium">{challengeStats.total_participants}</span>
+                  <span className="text-sm">Completed Challenges:</span>
+                  <span className="font-medium">{challengeStats.completed_challenges}</span>
                 </div>
               </div>
             </div>
@@ -160,9 +175,7 @@ export function DashboardCharts({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm">Avg Team Size:</span>
-                  <span className="font-medium">
-                    {teamStats.total_teams > 0 ? Math.round(teamStats.avg_team_size + 1) : 0}
-                  </span>
+                  <span className="font-medium">{teamStats.avg_team_size}</span>
                 </div>
               </div>
             </div>

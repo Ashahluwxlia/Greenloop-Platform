@@ -368,9 +368,28 @@ export default function AnalyticsCharts({
                           fill="#8884d8"
                           dataKey="value"
                         >
-                          {filteredCategoryBreakdown.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
+                          {filteredCategoryBreakdown.map((entry, index) => {
+                            const enhancedColors = [
+                              "#FF6B6B", // Coral Red
+                              "#4ECDC4", // Turquoise
+                              "#45B7D1", // Sky Blue
+                              "#96CEB4", // Mint Green
+                              "#FFEAA7", // Soft Yellow
+                              "#DDA0DD", // Plum
+                              "#98D8C8", // Seafoam
+                              "#F7DC6F", // Light Gold
+                              "#BB8FCE", // Lavender
+                              "#85C1E9", // Light Blue
+                              "#F8C471", // Peach
+                              "#82E0AA", // Light Green
+                            ]
+                            return (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={entry.color || enhancedColors[index % enhancedColors.length]}
+                              />
+                            )
+                          })}
                         </Pie>
                         <Tooltip formatter={(value, name) => [`${value} actions`, name]} />
                       </PieChart>

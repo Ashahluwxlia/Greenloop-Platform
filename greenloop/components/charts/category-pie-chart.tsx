@@ -20,6 +20,21 @@ export function CategoryPieChart({ data }: CategoryPieChartProps) {
     )
   }
 
+  const enhancedColors = [
+    "#FF6B6B", // Coral Red
+    "#4ECDC4", // Turquoise
+    "#45B7D1", // Sky Blue
+    "#96CEB4", // Mint Green
+    "#FFEAA7", // Soft Yellow
+    "#DDA0DD", // Plum
+    "#98D8C8", // Seafoam
+    "#F7DC6F", // Light Gold
+    "#BB8FCE", // Lavender
+    "#85C1E9", // Light Blue
+    "#F8C471", // Peach
+    "#82E0AA", // Light Green
+  ]
+
   return (
     <ResponsiveContainer width="100%" height={300}>
       <PieChart>
@@ -34,7 +49,7 @@ export function CategoryPieChart({ data }: CategoryPieChartProps) {
           dataKey="value"
         >
           {data.map((entry, index) => (
-            <Cell key={`cell-${index}`} fill={entry.color} />
+            <Cell key={`cell-${index}`} fill={entry.color || enhancedColors[index % enhancedColors.length]} />
           ))}
         </Pie>
         <Tooltip />

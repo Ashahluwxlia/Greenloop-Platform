@@ -116,7 +116,7 @@ export default function AdminUsersPage() {
               .from("user_actions")
               .select("*", { count: "exact", head: true })
               .eq("user_id", user.id)
-              .eq("is_verified", true)
+              .eq("verification_status", "approved")
 
             return {
               ...user,

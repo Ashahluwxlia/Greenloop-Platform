@@ -1,5 +1,5 @@
 
-\restrict yp0C4kBFKg7We3cejETHsv5DPFfh4bX6gdQGHjGr5h7I3f6ejuKPdxxJcB1b2fe
+\restrict mnOecQt6ClqZ5fXWzEVZXaz53dJymhu8I1abzYCc616Qhz9VblpFR9oLKZF6OzI
 
 
 SET statement_timeout = 0;
@@ -1754,6 +1754,8 @@ ALTER TABLE "public"."user_sessions" OWNER TO "postgres";
 
 CREATE OR REPLACE VIEW "public"."admin_dashboard_stats" AS
  SELECT ( SELECT "count"(*) AS "count"
+           FROM "public"."users") AS "total_users",
+    ( SELECT "count"(*) AS "count"
            FROM "public"."users"
           WHERE ("users"."is_active" = true)) AS "active_users",
     ( SELECT "count"(*) AS "count"
@@ -1762,6 +1764,9 @@ CREATE OR REPLACE VIEW "public"."admin_dashboard_stats" AS
     ( SELECT "count"(DISTINCT "us"."user_id") AS "count"
            FROM "public"."user_sessions" "us"
           WHERE ("us"."created_at" >= (CURRENT_DATE - '7 days'::interval))) AS "active_users_7d",
+    ( SELECT "round"("avg"("users"."points"), 1) AS "round"
+           FROM "public"."users"
+          WHERE ("users"."points" > 0)) AS "avg_points",
     ( SELECT "count"(*) AS "count"
            FROM "public"."user_actions"
           WHERE ("user_actions"."verification_status" = 'approved'::"text")) AS "total_verified_actions",
@@ -4220,6 +4225,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict yp0C4kBFKg7We3cejETHsv5DPFfh4bX6gdQGHjGr5h7I3f6ejuKPdxxJcB1b2fe
+\unrestrict mnOecQt6ClqZ5fXWzEVZXaz53dJymhu8I1abzYCc616Qhz9VblpFR9oLKZF6OzI
 
 RESET ALL;
