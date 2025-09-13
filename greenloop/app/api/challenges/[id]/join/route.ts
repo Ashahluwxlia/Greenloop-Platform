@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     if (challenge.max_participants && challenge.challenge_type !== "team") {
       const { data: canJoin, error: checkError } = await supabase.rpc("safe_check_max_participants", {
-        challenge_uuid: challengeId,
+        challenge_id_param: challengeId,
       })
 
       if (checkError) {

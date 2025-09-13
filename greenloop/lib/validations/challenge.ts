@@ -96,18 +96,6 @@ export const challengeFormSchema = baseChallengeSchema
       path: ["maxParticipants"],
     },
   )
-  .refine(
-    (data) => {
-      if (data.challengeType === "individual" && data.rewardPoints > 0) {
-        return false
-      }
-      return true
-    },
-    {
-      message: "Personal challenges cannot have reward points",
-      path: ["rewardPoints"],
-    },
-  )
 
 export type ChallengeFormData = z.infer<typeof challengeFormSchema>
 

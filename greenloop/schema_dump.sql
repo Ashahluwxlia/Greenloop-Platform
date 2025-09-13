@@ -1,5 +1,5 @@
 
-\restrict mnOecQt6ClqZ5fXWzEVZXaz53dJymhu8I1abzYCc616Qhz9VblpFR9oLKZF6OzI
+\restrict NgJGJAzuzZFnYNgwf52Zf3hL9L1F5mWZMVIsErfOVQ7sTGvQvLP5Jaj6kw5sCVC
 
 
 SET statement_timeout = 0;
@@ -80,6 +80,96 @@ $$;
 
 
 ALTER FUNCTION "public"."auto_join_personal_challenge"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."award_challenge_completion_rewards"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    challenge_record RECORD;
+    team_member_record RECORD;
+    reward_points INTEGER;
+BEGIN
+    -- Only process when a challenge is being marked as completed
+    IF NEW.completed = true AND (OLD.completed IS NULL OR OLD.completed = false) THEN
+        
+        -- Get challenge details
+        SELECT * INTO challenge_record
+        FROM challenges 
+        WHERE id = NEW.challenge_id;
+        
+        -- Only award points if challenge has reward points
+        IF challenge_record.reward_points > 0 THEN
+            
+            CASE challenge_record.challenge_type
+                WHEN 'individual' THEN
+                    -- Individual challenges don't get reward points (already enforced in validation)
+                    -- This case should never happen due to validation, but included for completeness
+                    NULL;
+                    
+                WHEN 'team' THEN
+                    -- Award points to all team members who participated in the challenge
+                    FOR team_member_record IN
+                        SELECT DISTINCT cp.user_id
+                        FROM challenge_participants cp
+                        WHERE cp.challenge_id = NEW.challenge_id
+                        AND cp.user_id IS NOT NULL
+                        AND cp.completed = true
+                    LOOP
+                        -- Create point transaction for each team member
+                        INSERT INTO point_transactions (
+                            user_id,
+                            points,
+                            transaction_type,
+                            description,
+                            reference_id,
+                            reference_type
+                        ) VALUES (
+                            team_member_record.user_id,
+                            challenge_record.reward_points,
+                            'challenge_reward',
+                            format('Completed team challenge: %s', challenge_record.title),
+                            challenge_record.id,
+                            'challenge'
+                        );
+                        
+                        RAISE NOTICE 'Awarded % points to user % for completing team challenge %', 
+                            challenge_record.reward_points, team_member_record.user_id, challenge_record.title;
+                    END LOOP;
+                    
+                WHEN 'company' THEN
+                    -- Award points to the individual user who completed the company challenge
+                    INSERT INTO point_transactions (
+                        user_id,
+                        points,
+                        transaction_type,
+                        description,
+                        reference_id,
+                        reference_type
+                    ) VALUES (
+                        NEW.user_id,
+                        challenge_record.reward_points,
+                        'challenge_reward',
+                        format('Completed company challenge: %s', challenge_record.title),
+                        challenge_record.id,
+                        'challenge'
+                    );
+                    
+                    RAISE NOTICE 'Awarded % points to user % for completing company challenge %', 
+                        challenge_record.reward_points, NEW.user_id, challenge_record.title;
+                        
+            END CASE;
+            
+        END IF;
+        
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."award_challenge_completion_rewards"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."calculate_user_level"("user_points" integer) RETURNS integer
@@ -1399,9 +1489,12 @@ BEGIN
         -- Personal challenges can only be created by the user for themselves
         IF NEW.created_by != auth.uid() THEN
             RAISE EXCEPTION 'Personal challenges can only be created by the user for themselves'
-                USING ERRCODE = 'insufficient_privilege';
+                USING ERRCODE = 'check_violation';
         END IF;
     END IF;
+    
+    -- Allow team challenges to have reward points (removed restriction)
+    -- Team and company challenges can have reward points
     
     RETURN NEW;
 END;
@@ -2759,6 +2852,14 @@ CREATE OR REPLACE TRIGGER "auto_join_personal_challenge_trigger" AFTER INSERT ON
 
 
 
+CREATE OR REPLACE TRIGGER "award_challenge_rewards_progress_trigger" AFTER UPDATE ON "public"."challenge_progress" FOR EACH ROW EXECUTE FUNCTION "public"."award_challenge_completion_rewards"();
+
+
+
+CREATE OR REPLACE TRIGGER "award_challenge_rewards_trigger" AFTER UPDATE ON "public"."challenge_participants" FOR EACH ROW EXECUTE FUNCTION "public"."award_challenge_completion_rewards"();
+
+
+
 CREATE OR REPLACE TRIGGER "check_personal_challenge_rate_limit_trigger" BEFORE INSERT ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."check_personal_challenge_rate_limit"();
 
 
@@ -3710,6 +3811,12 @@ GRANT ALL ON FUNCTION "public"."auto_join_personal_challenge"() TO "service_role
 
 
 
+GRANT ALL ON FUNCTION "public"."award_challenge_completion_rewards"() TO "anon";
+GRANT ALL ON FUNCTION "public"."award_challenge_completion_rewards"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."award_challenge_completion_rewards"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "service_role";
@@ -4225,6 +4332,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict mnOecQt6ClqZ5fXWzEVZXaz53dJymhu8I1abzYCc616Qhz9VblpFR9oLKZF6OzI
+\unrestrict NgJGJAzuzZFnYNgwf52Zf3hL9L1F5mWZMVIsErfOVQ7sTGvQvLP5Jaj6kw5sCVC
 
 RESET ALL;

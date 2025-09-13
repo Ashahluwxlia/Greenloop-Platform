@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
         challenge_type: challengeType,
         category,
         end_date: endDate,
-        reward_points: challengeType === "individual" ? 0 : rewardPoints,
+        reward_points: rewardPoints, // Allow team challenges to have reward points
         target_metric: targetMetric,
         target_value: targetValue,
         reward_description: rewardDescription,
