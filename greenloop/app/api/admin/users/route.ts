@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { email, firstName, lastName, employeeId, jobTitle, department, isAdmin } = body
 
-    console.log("[v0] Creating user with email:", email, "and employee ID:", employeeId)
+    console.log("-> Creating user with email:", email, "and employee ID:", employeeId)
 
     const { data: existingProfileByEmail } = await supabase
       .from("users")
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (existingProfileByEmail) {
-      console.log("[v0] Profile already exists for email:", email)
+      console.log("-> Profile already exists for email:", email)
       return NextResponse.json({ error: "User with this email already exists" }, { status: 400 })
     }
 
@@ -83,14 +83,14 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
 
       if (existingProfileByEmployeeId) {
-        console.log("[v0] Profile already exists for employee ID:", employeeId)
+        console.log("-> Profile already exists for employee ID:", employeeId)
         return NextResponse.json({ error: "User with this employee ID already exists" }, { status: 400 })
       }
     }
 
     const adminSupabase = createAdminClient()
 
-    console.log("[v0] Sending invitation to user")
+    console.log("-> Sending invitation to user")
     const { data: inviteData, error: inviteError } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?type=invite`,
       data: {
@@ -105,11 +105,11 @@ export async function POST(request: NextRequest) {
     })
 
     if (inviteError) {
-      console.log("[v0] Invitation failed:", inviteError)
+      console.log("-> Invitation failed:", inviteError)
       throw inviteError
     }
 
-    console.log("[v0] Invitation sent successfully to:", email)
+    console.log("-> Invitation sent successfully to:", email)
 
     return NextResponse.json({
       message: "User invited successfully. They will receive an email to set up their account.",

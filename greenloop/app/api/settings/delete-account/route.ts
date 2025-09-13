@@ -45,7 +45,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     console.log(
-      `[v0] Initiating account deletion for user: ${userProfile?.first_name} ${userProfile?.last_name} (${user.id})`,
+      `-> Initiating account deletion for user: ${userProfile?.first_name} ${userProfile?.last_name} (${user.id})`,
     )
 
     // Use admin client to delete user data and auth account
@@ -55,11 +55,11 @@ export async function DELETE(request: NextRequest) {
     const { error: deleteAuthError } = await adminSupabase.auth.admin.deleteUser(user.id)
 
     if (deleteAuthError) {
-      console.error("[v0] Error deleting auth user:", deleteAuthError)
+      console.error("-> Error deleting auth user:", deleteAuthError)
       throw deleteAuthError
     }
 
-    console.log("[v0] Account deletion completed successfully")
+    console.log("-> Account deletion completed successfully")
 
     return NextResponse.json({
       message: "Account deleted successfully. You will be redirected to the login page.",

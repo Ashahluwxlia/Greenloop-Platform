@@ -36,7 +36,7 @@ export default function ActionReviewsPage() {
 
   const loadData = async () => {
     try {
-      console.log("[v0] Loading data for admin review page")
+      console.log("-> Loading data for admin review page")
 
       // Load user-submitted actions (pending approval) - these are actions created by users
       const { data: submissions, error: submissionsError } = await supabase
@@ -49,9 +49,9 @@ export default function ActionReviewsPage() {
         .order("created_at", { ascending: false })
 
       if (submissionsError) {
-        console.error("[v0] Error loading submissions:", submissionsError)
+        console.error("-> Error loading submissions:", submissionsError)
       } else {
-        console.log("[v0] Loaded submissions:", submissions?.length || 0)
+        console.log("-> Loaded submissions:", submissions?.length || 0)
 
         if (submissions && submissions.length > 0) {
           const userIds = submissions.map((s) => s.submitted_by).filter(Boolean)
@@ -77,10 +77,10 @@ export default function ActionReviewsPage() {
         .order("completed_at", { ascending: false })
 
       if (logsError) {
-        console.error("[v0] Error loading action logs:", logsError)
+        console.error("-> Error loading action logs:", logsError)
         setUserActionLogs([])
       } else {
-        console.log("[v0] Loaded action logs:", actionLogs?.length || 0)
+        console.log("-> Loaded action logs:", actionLogs?.length || 0)
 
         if (actionLogs && actionLogs.length > 0) {
           // Get unique action IDs and user IDs
@@ -105,7 +105,7 @@ export default function ActionReviewsPage() {
         }
       }
     } catch (error) {
-      console.error("[v0] Failed to load data:", error)
+      console.error("-> Failed to load data:", error)
       toast({
         title: "Error",
         description: "Failed to load action reviews",

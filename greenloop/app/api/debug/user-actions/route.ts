@@ -69,12 +69,12 @@ export async function POST(request: NextRequest) {
       verification_status: "approved",
     }
 
-    console.log("[v0] Attempting to insert test data:", testData)
+    console.log("-> Attempting to insert test data:", testData)
 
     const { data, error } = await supabase.from("user_actions").insert(testData).select()
 
     if (error) {
-      console.log("[v0] Insert error:", error)
+      console.log("-> Insert error:", error)
       return NextResponse.json(
         {
           error: "Failed to insert test record",
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log("[v0] Insert successful:", data)
+    console.log("-> Insert successful:", data)
 
     return NextResponse.json({
       success: true,
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
       testData,
     })
   } catch (error) {
-    console.log("[v0] Catch error:", error)
+    console.log("-> Catch error:", error)
     return NextResponse.json(
       {
         error: "Unexpected error",

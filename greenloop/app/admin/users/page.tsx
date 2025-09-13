@@ -209,7 +209,7 @@ export default function AdminUsersPage() {
   }
 
   const handleUserAction = async (action: string, user: User) => {
-    console.log("[v0] Handling action:", action, "for user:", user.email)
+    console.log("-> Handling action:", action, "for user:", user.email)
     setOpenDropdown(null)
 
     switch (action) {
@@ -293,7 +293,7 @@ export default function AdminUsersPage() {
   }, [openDropdown])
 
   const toggleDropdown = (userId: string, event?: React.MouseEvent) => {
-    console.log("[v0] Toggling dropdown for user:", userId)
+    console.log("-> Toggling dropdown for user:", userId)
 
     if (openDropdown === userId) {
       setOpenDropdown(null)

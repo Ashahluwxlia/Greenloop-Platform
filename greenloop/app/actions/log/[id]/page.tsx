@@ -120,21 +120,21 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
       const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(2)}_${index}.${fileExt}`
       const filePath = fileName
 
-      console.log("[v0] Uploading file:", { fileName, filePath, fileSize: file.size })
+      console.log("-> Uploading file:", { fileName, filePath, fileSize: file.size })
 
       const { error: uploadError, data: uploadData } = await supabase.storage
         .from("action-photos")
         .upload(filePath, file)
 
-      console.log("[v0] Upload result:", { uploadError, uploadData })
+      console.log("-> Upload result:", { uploadError, uploadData })
 
       if (uploadError) {
-        console.error("[v0] Upload failed:", uploadError)
+        console.error("-> Upload failed:", uploadError)
         throw new Error(`Failed to upload photo: ${uploadError.message}`)
       }
 
       const { data: urlData } = supabase.storage.from("action-photos").getPublicUrl(filePath)
-      console.log("[v0] Public URL data:", urlData)
+      console.log("-> Public URL data:", urlData)
 
       return urlData.publicUrl
     })
@@ -160,14 +160,14 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
     setError(null)
 
     try {
-      console.log("[v0] Starting photo upload before API call...")
+      console.log("-> Starting photo upload before API call...")
       let photoUrls: string[] = []
 
       try {
         photoUrls = await uploadPhotos()
-        console.log("[v0] Photos uploaded successfully:", photoUrls)
+        console.log("-> Photos uploaded successfully:", photoUrls)
       } catch (photoError) {
-        console.error("[v0] Photo upload failed:", photoError)
+        console.error("-> Photo upload failed:", photoError)
         setError("Failed to upload photos. Please try again.")
         return
       }
@@ -191,7 +191,7 @@ export default function ActionLogPage({ params }: ActionLogPageProps) {
         throw new Error(result.error || "Failed to log action")
       }
 
-      console.log("[v0] Action logged successfully with photos")
+      console.log("-> Action logged successfully with photos")
 
       setSuccess(true)
 

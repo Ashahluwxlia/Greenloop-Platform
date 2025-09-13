@@ -50,14 +50,14 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
 
   useEffect(() => {
     async function loadCategories() {
-      console.log("[v0] Loading categories...")
+      console.log("-> Loading categories...")
       const { data, error } = await supabase
         .from("action_categories")
         .select("id, name, color")
         .eq("is_active", true)
         .order("name")
 
-      console.log("[v0] Categories loaded:", { data, error })
+      console.log("-> Categories loaded:", { data, error })
       setCategories(data || [])
     }
 
@@ -67,9 +67,9 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
   }, [isOpen, supabase])
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("[v0] Photo change event triggered")
+    console.log("-> Photo change event triggered")
     const file = e.target.files?.[0]
-    console.log("[v0] Selected file:", {
+    console.log("-> Selected file:", {
       name: file?.name,
       size: file?.size,
       type: file?.type,
@@ -77,15 +77,15 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
 
     if (file) {
       setPhotoFile(file)
-      console.log("[v0] Photo file set, creating preview...")
+      console.log("-> Photo file set, creating preview...")
 
       const reader = new FileReader()
       reader.onload = (e) => {
-        console.log("[v0] FileReader loaded successfully")
+        console.log("-> FileReader loaded successfully")
         setPhotoPreview(e.target?.result as string)
       }
       reader.onerror = (e) => {
-        console.error("[v0] FileReader error:", e)
+        console.error("-> FileReader error:", e)
       }
       reader.readAsDataURL(file)
       setErrors((prev) => ({ ...prev, photo: "" }))
@@ -93,8 +93,8 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
   }
 
   const validateForm = () => {
-    console.log("[v0] Validating form with data:", formData)
-    console.log("[v0] Photo file present:", !!photoFile)
+    console.log("-> Validating form with data:", formData)
+    console.log("-> Photo file present:", !!photoFile)
 
     const newErrors: Record<string, string> = {}
 
@@ -111,68 +111,68 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
       newErrors.photo = "Photo proof is required"
     }
 
-    console.log("[v0] Validation errors:", newErrors)
+    console.log("-> Validation errors:", newErrors)
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    console.log("[v0] =================================")
-    console.log("[v0] FORM SUBMISSION TRIGGERED")
-    console.log("[v0] Event:", e)
-    console.log("[v0] =================================")
+    console.log("-> =================================")
+    console.log("-> FORM SUBMISSION TRIGGERED")
+    console.log("-> Event:", e)
+    console.log("-> =================================")
 
     try {
       e.preventDefault()
-      console.log("[v0] Form submission started")
-      console.log("[v0] Current form data:", formData)
-      console.log("[v0] Photo file:", photoFile)
+      console.log("-> Form submission started")
+      console.log("-> Current form data:", formData)
+      console.log("-> Photo file:", photoFile)
 
       if (!validateForm()) {
-        console.log("[v0] Form validation failed, stopping submission")
+        console.log("-> Form validation failed, stopping submission")
         return
       }
 
       setIsSubmitting(true)
       setSubmitStatus("idle")
 
-      console.log("[v0] Getting current user...")
+      console.log("-> Getting current user...")
       // Get current user
       const { data: userData, error: userError } = await supabase.auth.getUser()
-      console.log("[v0] User data:", { userData: userData?.user?.id, error: userError })
+      console.log("-> User data:", { userData: userData?.user?.id, error: userError })
 
       if (userError || !userData?.user) {
-        console.error("[v0] User authentication failed:", userError)
+        console.error("-> User authentication failed:", userError)
         throw new Error("User not authenticated")
       }
 
       let photoUrl = ""
       if (photoFile) {
-        console.log("[v0] Starting photo upload process...")
+        console.log("-> Starting photo upload process...")
         const fileExt = photoFile.name.split(".").pop()
         const fileName = `${userData.user.id}/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`
         const filePath = fileName
 
-        console.log("[v0] Upload details:", { fileName, filePath, fileSize: photoFile.size })
+        console.log("-> Upload details:", { fileName, filePath, fileSize: photoFile.size })
 
-        console.log("[v0] Uploading to Supabase storage...")
+        console.log("-> Uploading to Supabase storage...")
         const { error: uploadError, data: uploadData } = await supabase.storage
           .from("action-photos")
           .upload(filePath, photoFile)
 
-        console.log("[v0] Upload result:", { uploadError, uploadData })
+        console.log("-> Upload result:", { uploadError, uploadData })
 
         if (uploadError) {
-          console.error("[v0] Upload failed:", uploadError)
+          console.error("-> Upload failed:", uploadError)
           throw new Error(`Failed to upload photo: ${uploadError.message}`)
         }
 
-        console.log("[v0] Getting public URL...")
+        console.log("-> Getting public URL...")
         const { data: urlData } = supabase.storage.from("action-photos").getPublicUrl(filePath)
-        console.log("[v0] Public URL data:", urlData)
+        console.log("-> Public URL data:", urlData)
 
         photoUrl = urlData.publicUrl
-        console.log("[v0] Final photo URL:", photoUrl)
+        console.log("-> Final photo URL:", photoUrl)
       }
 
       const insertData = {
@@ -193,19 +193,19 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         updated_at: new Date().toISOString(), // Explicitly set timestamp
       }
 
-      console.log("[v0] Creating action submission with data:", insertData)
-      console.log("[v0] About to insert into sustainability_actions table...")
+      console.log("-> Creating action submission with data:", insertData)
+      console.log("-> About to insert into sustainability_actions table...")
 
       const { error: actionError, data: actionData } = await supabase
         .from("sustainability_actions")
         .insert(insertData)
         .select()
 
-      console.log("[v0] Action insert result:", { actionError, actionData })
+      console.log("-> Action insert result:", { actionError, actionData })
 
       if (actionError) {
-        console.error("[v0] Action insert failed:", actionError)
-        console.error("[v0] Full error details:", JSON.stringify(actionError, null, 2))
+        console.error("-> Action insert failed:", actionError)
+        console.error("-> Full error details:", JSON.stringify(actionError, null, 2))
 
         if (actionError.message.includes("row-level security")) {
           throw new Error("Permission denied. Please make sure you're logged in and try again.")
@@ -216,7 +216,7 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         }
       }
 
-      console.log("[v0] Action submitted successfully!")
+      console.log("-> Action submitted successfully!")
 
       // Reset form
       setFormData({
@@ -237,14 +237,14 @@ export function UserActionSubmissionModal({ onSubmissionSuccess }: UserActionSub
         onSubmissionSuccess?.()
       }, 2000)
     } catch (error) {
-      console.error("[v0] Submission error:", error)
-      console.error("[v0] Error stack:", error instanceof Error ? error.stack : "No stack trace")
+      console.error("-> Submission error:", error)
+      console.error("-> Error stack:", error instanceof Error ? error.stack : "No stack trace")
       setSubmitStatus("error")
 
       setErrors({ submit: error instanceof Error ? error.message : "Unknown error occurred" })
     } finally {
       setIsSubmitting(false)
-      console.log("[v0] Submission process completed")
+      console.log("-> Submission process completed")
     }
   }
 

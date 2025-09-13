@@ -106,7 +106,7 @@ export function ChallengeCrudModal({ isOpen, onClose, challenge, onSuccess, curr
 
   useEffect(() => {
     if (isOpen && challenge) {
-      console.log("[v0] Challenge modal opened with data:", challenge)
+      console.log("-> Challenge modal opened with data:", challenge)
 
       const formatDateForInput = (dateString: string) => {
         if (!dateString) return new Date().toISOString().split("T")[0]

@@ -88,7 +88,7 @@ export function InteractiveSearch({
 
   // Handle filter changes
   const handleFilterChange = (filterKey: string, value: string, checked: boolean) => {
-    console.log("[v0] Filter change:", { filterKey, value, checked })
+    console.log("-> Filter change:", { filterKey, value, checked })
     setActiveFilters((prev) => {
       const currentValues = prev[filterKey] || []
       if (checked) {
@@ -101,14 +101,14 @@ export function InteractiveSearch({
 
   // Clear all filters
   const clearFilters = () => {
-    console.log("[v0] Clearing all filters")
+    console.log("-> Clearing all filters")
     setActiveFilters({})
     setSearchTerm("")
     setIsFilterOpen(false)
   }
 
   const toggleFilterDropdown = () => {
-    console.log("[v0] Toggling filter dropdown:", !isFilterOpen)
+    console.log("-> Toggling filter dropdown:", !isFilterOpen)
     setIsFilterOpen(!isFilterOpen)
   }
 

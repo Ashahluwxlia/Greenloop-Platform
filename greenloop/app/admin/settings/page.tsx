@@ -59,12 +59,12 @@ export default function AdminSettingsPage() {
 
         setUserProfile(profile)
 
-        console.log("[v0] Loading settings via API...")
+        console.log("-> Loading settings via API...")
         const response = await fetch("/api/admin/settings")
 
         if (response.ok) {
           const result = await response.json()
-          console.log("[v0] Loaded settings from API:", result)
+          console.log("-> Loaded settings from API:", result)
 
           if (result.settings) {
             const transformedSettings: Partial<SystemSettings> = {}
@@ -83,7 +83,7 @@ export default function AdminSettingsPage() {
               transformedSettings[key] = value
             })
 
-            console.log("[v0] Transformed settings:", transformedSettings)
+            console.log("-> Transformed settings:", transformedSettings)
 
             setSettings({
               ...DEFAULT_SETTINGS,
@@ -91,11 +91,11 @@ export default function AdminSettingsPage() {
             })
           }
         } else {
-          console.error("[v0] Failed to load settings from API")
+          console.error("-> Failed to load settings from API")
           // Keep default settings if API fails
         }
       } catch (error) {
-        console.error("[v0] Error loading settings:", error)
+        console.error("-> Error loading settings:", error)
         // Keep default settings on error
       } finally {
         setLoading(false)
@@ -108,7 +108,7 @@ export default function AdminSettingsPage() {
   const handleSaveSettings = async () => {
     setSaving(true)
     try {
-      console.log("[v0] Starting to save settings via API:", settings)
+      console.log("-> Starting to save settings via API:", settings)
 
       const response = await fetch("/api/admin/settings", {
         method: "POST",
@@ -119,19 +119,19 @@ export default function AdminSettingsPage() {
       })
 
       const result = await response.json()
-      console.log("[v0] API response:", result)
+      console.log("-> API response:", result)
 
       if (!response.ok) {
         throw new Error(result.error || "Failed to save settings")
       }
 
-      console.log("[v0] Settings saved successfully via API")
+      console.log("-> Settings saved successfully via API")
       toast({
         title: "Settings Saved",
         description: "System settings have been updated successfully.",
       })
     } catch (error: any) {
-      console.error("[v0] Error saving settings:", error)
+      console.error("-> Error saving settings:", error)
       toast({
         title: "Error",
         description: error.message || "Failed to save settings",

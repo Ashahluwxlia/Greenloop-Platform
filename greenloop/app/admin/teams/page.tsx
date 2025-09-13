@@ -72,7 +72,7 @@ export default function AdminTeamsPage() {
         .order("created_at", { ascending: false })
 
       if (teamsError) {
-        console.error("[v0] Teams error:", teamsError)
+        console.error("-> Teams error:", teamsError)
         setTeams([])
         setFilteredTeams([])
         return
@@ -106,7 +106,7 @@ export default function AdminTeamsPage() {
         }),
       )
 
-      console.log("[v0] Teams with corrected stats:", teamsWithStats)
+      console.log("-> Teams with corrected stats:", teamsWithStats)
 
       setTeams(teamsWithStats)
       setFilteredTeams(teamsWithStats)

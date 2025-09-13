@@ -23,7 +23,7 @@ export async function POST() {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
 
-    console.log("[v0] User ID:", user.id)
+    console.log("-> User ID:", user.id)
 
     // Test 1: Try to insert with minimal data
     const testData = {
@@ -34,12 +34,12 @@ export async function POST() {
       notes: "Test insert",
     }
 
-    console.log("[v0] Attempting insert with data:", testData)
+    console.log("-> Attempting insert with data:", testData)
 
     const { data, error } = await supabase.from("user_actions").insert(testData).select()
 
     if (error) {
-      console.log("[v0] Insert error:", error)
+      console.log("-> Insert error:", error)
       return NextResponse.json({
         success: false,
         error: error.message,
@@ -48,10 +48,10 @@ export async function POST() {
       })
     }
 
-    console.log("[v0] Insert successful:", data)
+    console.log("-> Insert successful:", data)
     return NextResponse.json({ success: true, data })
   } catch (error) {
-    console.log("[v0] Catch error:", error)
+    console.log("-> Catch error:", error)
     return NextResponse.json(
       {
         success: false,

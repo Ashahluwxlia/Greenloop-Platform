@@ -165,11 +165,11 @@ export default function AnalyticsCharts({
 
   const handleDateRangeChange = useCallback(
     (range: DateRange | undefined) => {
-      console.log("[v0] Date range changed:", range)
+      console.log("-> Date range changed:", range)
       setDateRange(range)
 
       if (range?.from && range?.to && onDateRangeChange) {
-        console.log("[v0] Triggering data fetch for date range:", range.from, "to", range.to)
+        console.log("-> Triggering data fetch for date range:", range.from, "to", range.to)
         onDateRangeChange(range.from, range.to)
       }
     },

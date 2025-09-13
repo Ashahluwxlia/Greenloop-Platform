@@ -8,7 +8,7 @@ export function RefreshButton() {
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const handleRefresh = async () => {
-    console.log("[v0] Refreshing dashboard data...")
+    console.log("-> Refreshing dashboard data...")
     setIsRefreshing(true)
 
     try {
