@@ -1,5 +1,7 @@
-import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+"use client"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Navigation } from "@/components/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -8,129 +10,153 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MonthlyProgressChart } from "@/components/charts/monthly-progress-chart"
 import { CategoryPieChart } from "@/components/charts/category-pie-chart"
 import { CO2ImpactChart } from "@/components/charts/co2-impact-chart"
-import { BarChart3, TrendingUp, Award, Target, Download, Leaf, Zap, Recycle } from "lucide-react"
+import { BarChart3, TrendingUp, Award, Target, Download, Leaf, Zap, Recycle, Loader2 } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import type React from "react"
 
-export default async function AnalyticsPage() {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data?.user) {
-    redirect("/auth/login")
+interface AnalyticsData {
+  metrics: {
+    totalActions: number
+    totalPoints: number
+    totalCO2Saved: number
+    completedChallenges: number
   }
+  actions: any[]
+  challenges: any[]
+  badges: any[]
+  profile: any
+  monthlyData: any[]
+  categoryData: any[]
+  environmentalImpact: { [key: string]: number }
+}
 
-  // Get user profile
-  const { data: userProfile } = await supabase.from("users").select("*").eq("id", data.user.id).single()
+export default function AnalyticsPage() {
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [user, setUser] = useState<any>(null)
+  const router = useRouter()
 
-  // Get user's actions with categories
-  const { data: userActions } = await supabase
-    .from("user_actions")
-    .select(`
-      *,
-      sustainability_actions (
-        title,
-        category,
-        co2_impact,
-        points_value
-      )
-    `)
-    .eq("user_id", data.user.id)
-    .order("created_at", { ascending: false })
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const supabase = createClient()
 
-  // Get user's challenge participations
-  const { data: challengeParticipations } = await supabase
-    .from("challenge_participants")
-    .select(`
-      *,
-      challenges (
-        title,
-        category,
-        points_reward
-      )
-    `)
-    .eq("user_id", data.user.id)
+        // Check authentication
+        const {
+          data: { user: authUser },
+          error: authError,
+        } = await supabase.auth.getUser()
+        if (authError || !authUser) {
+          router.push("/auth/login")
+          return
+        }
 
-  // Get user's badges
-  const { data: userBadges } = await supabase
-    .from("user_badges")
-    .select(`
-      *,
-      badges (
-        name,
-        description,
-        icon_url
-      )
-    `)
-    .eq("user_id", data.user.id)
-    .order("earned_at", { ascending: false })
+        setUser(authUser)
 
-  // Process data for charts
-  const monthlyData =
-    userActions?.reduce((acc: any[], action) => {
-      const month = new Date(action.created_at).toLocaleDateString("en-US", { month: "short", year: "2-digit" })
-      const existing = acc.find((item) => item.month === month)
+        // Fetch analytics data from API
+        const response = await fetch("/api/analytics/user")
+        if (!response.ok) {
+          throw new Error("Failed to fetch analytics data")
+        }
 
-      if (existing) {
-        existing.actions += 1
-        existing.points += action.sustainability_actions?.points_value || 0
-        existing.co2 += action.sustainability_actions?.co2_impact || 0
-      } else {
-        acc.push({
-          month,
-          actions: 1,
-          points: action.sustainability_actions?.points_value || 0,
-          co2: action.sustainability_actions?.co2_impact || 0,
-        })
+        const data = await response.json()
+        setAnalyticsData(data)
+      } catch (err) {
+        console.error("Error fetching analytics:", err)
+        setError(err instanceof Error ? err.message : "Failed to load analytics")
+      } finally {
+        setLoading(false)
       }
-      return acc
-    }, []) || []
-
-  const categoryData =
-    userActions?.reduce((acc: any[], action) => {
-      const category = action.sustainability_actions?.category || "Other"
-      const existing = acc.find((item) => item.name === category)
-
-      if (existing) {
-        existing.value += 1
-        existing.co2 += action.sustainability_actions?.co2_impact || 0
-      } else {
-        acc.push({
-          name: category,
-          value: 1,
-          co2: action.sustainability_actions?.co2_impact || 0,
-          color: getCategoryColor(category),
-        })
-      }
-      return acc
-    }, []) || []
-
-  function getCategoryColor(category: string) {
-    const colors: { [key: string]: string } = {
-      Energy: "#0891b2", // cyan-600
-      Transportation: "#d97706", // amber-600
-      Waste: "#34d399", // emerald-400
-      Water: "#fbbf24", // amber-400
-      Food: "#f87171", // red-400
-      "Food & Diet": "#ef4444", // red-500
-      "Office Practices": "#8b5cf6", // violet-500
-      Office: "#8b5cf6", // violet-500
-      "Home & Garden": "#10b981", // emerald-500
-      Community: "#f59e0b", // amber-500
-      Digital: "#06b6d4", // cyan-500
-      Shopping: "#ec4899", // pink-500
-      "Health & Wellness": "#84cc16", // lime-500
-      Other: "#9ca3af", // gray-400
     }
-    return colors[category] || colors["Other"]
+
+    fetchData()
+  }, [router])
+
+  const handleExportReport = async () => {
+    if (!analyticsData) return
+
+    try {
+      const reportData = {
+        user: analyticsData.profile,
+        metrics: analyticsData.metrics,
+        actions: analyticsData.actions,
+        challenges: analyticsData.challenges,
+        badges: analyticsData.badges,
+        generatedAt: new Date().toISOString(),
+      }
+
+      const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `sustainability-report-${new Date().toISOString().split("T")[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("Error exporting report:", error)
+    }
   }
 
-  const totalActions = userActions?.length || 0
-  const totalPoints = userProfile?.points || 0
-  const totalCO2Saved = userProfile?.total_co2_saved || 0
-  const completedChallenges = challengeParticipations?.filter((p) => p.completed).length || 0
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <span>Loading analytics...</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !analyticsData) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <h2 className="text-xl font-semibold mb-2">Error Loading Analytics</h2>
+            <p className="text-muted-foreground">{error || "Failed to load analytics data"}</p>
+            <Button onClick={() => window.location.reload()} className="mt-4">
+              Try Again
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const { metrics, actions, challenges, badges, profile, monthlyData, categoryData, environmentalImpact } =
+    analyticsData
+
+  const activeCategoryData = categoryData?.filter((category: any) => category.value > 0) || []
+
+  const activeEnvironmentalImpact = Object.entries(environmentalImpact || {})
+    .filter(([_, value]) => (value as number) > 0)
+    .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {})
+
+  const categoryConfig: {
+    [key: string]: { color: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }> }
+  } = {
+    Energy: { color: "#f59e0b", icon: Zap },
+    Transport: { color: "#3b82f6", icon: Target },
+    Waste: { color: "#10b981", icon: Recycle },
+    Food: { color: "#ef4444", icon: Leaf },
+    "Food & Diet": { color: "#dc2626", icon: Award },
+    "Office Practices": { color: "#8b5cf6", icon: Zap },
+    "Home & Garden": { color: "#059669", icon: Leaf },
+    Community: { color: "#f59e0b", icon: Award },
+    Digital: { color: "#06b6d4", icon: Zap },
+    Shopping: { color: "#ec4899", icon: Recycle },
+    "Health & Wellness": { color: "#84cc16", icon: Award },
+  }
 
   return (
     <div className="min-h-screen bg-background">
-      <Navigation user={userProfile} />
+      <Navigation user={profile} />
 
       <main className="container mx-auto px-4 py-8">
         <div className="space-y-8">
@@ -146,7 +172,7 @@ export default async function AnalyticsPage() {
                 impact.
               </p>
             </div>
-            <Button>
+            <Button onClick={handleExportReport}>
               <Download className="h-4 w-4 mr-2" />
               Export Report
             </Button>
@@ -160,7 +186,7 @@ export default async function AnalyticsPage() {
                 <Target className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-primary">{totalActions}</div>
+                <div className="text-2xl font-bold text-primary">{metrics.totalActions}</div>
                 <p className="text-xs text-muted-foreground">Sustainability actions completed</p>
               </CardContent>
             </Card>
@@ -171,7 +197,7 @@ export default async function AnalyticsPage() {
                 <Award className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-accent">{totalPoints}</div>
+                <div className="text-2xl font-bold text-accent">{metrics.totalPoints}</div>
                 <p className="text-xs text-muted-foreground">Total sustainability points</p>
               </CardContent>
             </Card>
@@ -182,7 +208,7 @@ export default async function AnalyticsPage() {
                 <Leaf className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-chart-4">{totalCO2Saved}kg</div>
+                <div className="text-2xl font-bold text-chart-4">{metrics.totalCO2Saved}kg</div>
                 <p className="text-xs text-muted-foreground">Carbon footprint reduced</p>
               </CardContent>
             </Card>
@@ -193,7 +219,7 @@ export default async function AnalyticsPage() {
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-chart-2">{completedChallenges}</div>
+                <div className="text-2xl font-bold text-chart-2">{metrics.completedChallenges}</div>
                 <p className="text-xs text-muted-foreground">Challenges completed</p>
               </CardContent>
             </Card>
@@ -228,154 +254,55 @@ export default async function AnalyticsPage() {
                     <CardDescription>Distribution of your sustainability actions</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <CategoryPieChart data={categoryData} />
+                    {activeCategoryData.length > 0 ? (
+                      <CategoryPieChart data={activeCategoryData} />
+                    ) : (
+                      <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                        <p>No actions logged yet. Complete some actions to see your categories!</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
             </TabsContent>
 
             <TabsContent value="impact" className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Environmental Impact Cards */}
+              {Object.keys(activeEnvironmentalImpact).length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {Object.entries(activeEnvironmentalImpact).map(([category, co2Value]) => {
+                    const config = categoryConfig[category] || { color: "#6b7280", icon: Leaf }
+                    const IconComponent = config.icon as React.ComponentType<{
+                      className?: string
+                      style?: React.CSSProperties
+                    }>
+
+                    return (
+                      <Card key={category}>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <CardTitle className="text-sm font-medium">{category} Saved</CardTitle>
+                          <IconComponent className="h-4 w-4" style={{ color: config.color }} />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{co2Value as number}kg</div>
+                          <p className="text-xs text-muted-foreground">CO₂ from {category.toLowerCase()} actions</p>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+              ) : (
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Energy Saved</CardTitle>
-                    <Zap className="h-4 w-4 text-yellow-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Energy")?.co2 || 0}kg
+                  <CardContent className="flex items-center justify-center h-[200px]">
+                    <div className="text-center">
+                      <Leaf className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No Environmental Impact Yet</h3>
+                      <p className="text-muted-foreground">
+                        Complete sustainability actions to see your environmental impact!
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from energy actions</p>
                   </CardContent>
                 </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Transport Impact</CardTitle>
-                    <Target className="h-4 w-4 text-blue-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Transportation")?.co2 || 0}kg
-                    </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from transport actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Waste Reduced</CardTitle>
-                    <Recycle className="h-4 w-4 text-green-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{categoryData.find((c) => c.name === "Waste")?.co2 || 0}kg</div>
-                    <p className="text-xs text-muted-foreground">CO₂ from waste actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Food Saved</CardTitle>
-                    <Leaf className="h-4 w-4 text-red-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{categoryData.find((c) => c.name === "Food")?.co2 || 0}kg</div>
-                    <p className="text-xs text-muted-foreground">CO₂ from food actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Food & Diet Saved</CardTitle>
-                    <Award className="h-4 w-4 text-red-600" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Food & Diet")?.co2 || 0}kg
-                    </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from food & diet actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Office Practices Saved</CardTitle>
-                    <Zap className="h-4 w-4 text-violet-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Office Practices")?.co2 || 0}kg
-                    </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from office practices actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Home & Garden Saved</CardTitle>
-                    <Leaf className="h-4 w-4 text-emerald-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Home & Garden")?.co2 || 0}kg
-                    </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from home & garden actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Community Saved</CardTitle>
-                    <Award className="h-4 w-4 text-amber-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Community")?.co2 || 0}kg
-                    </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from community actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Digital Saved</CardTitle>
-                    <Zap className="h-4 w-4 text-cyan-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Digital")?.co2 || 0}kg
-                    </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from digital actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Shopping Saved</CardTitle>
-                    <Recycle className="h-4 w-4 text-pink-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Shopping")?.co2 || 0}kg
-                    </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from shopping actions</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Health & Wellness Saved</CardTitle>
-                    <Award className="h-4 w-4 text-lime-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {categoryData.find((c) => c.name === "Health & Wellness")?.co2 || 0}kg
-                    </div>
-                    <p className="text-xs text-muted-foreground">CO₂ from health & wellness actions</p>
-                  </CardContent>
-                </Card>
-              </div>
+              )}
 
               {/* CO2 Impact Over Time */}
               <Card>
@@ -398,29 +325,31 @@ export default async function AnalyticsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {userActions?.slice(0, 10).map((action) => (
-                      <div key={action.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-primary/10 rounded-full">
-                            <Leaf className="h-4 w-4 text-primary" />
+                    {actions && actions.length > 0 ? (
+                      actions.slice(0, 10).map((action) => (
+                        <div key={action.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-primary/10 rounded-full">
+                              <Leaf className="h-4 w-4 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">{action.sustainability_actions?.title}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(action.completed_at).toLocaleDateString()}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-sm">{action.sustainability_actions?.title}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(action.created_at).toLocaleDateString()}
-                            </p>
+                          <div className="text-right">
+                            <Badge variant="secondary" className="text-xs">
+                              {action.sustainability_actions?.action_categories?.name}
+                            </Badge>
+                            <p className="text-xs text-muted-foreground mt-1">+{action.points_earned} pts</p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <Badge variant="secondary" className="text-xs">
-                            {action.sustainability_actions?.category}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            +{action.sustainability_actions?.points_value} pts
-                          </p>
-                        </div>
-                      </div>
-                    )) || <p className="text-muted-foreground text-center py-4">No actions logged yet</p>}
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground text-center py-4">No actions logged yet</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -434,9 +363,9 @@ export default async function AnalyticsPage() {
                   <CardDescription>Recognition for your sustainability achievements</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {userBadges && userBadges.length > 0 ? (
+                  {badges && badges.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {userBadges.map((userBadge) => (
+                      {badges.map((userBadge) => (
                         <div key={userBadge.id} className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
                           <div className="p-3 bg-primary/10 rounded-full">
                             <Award className="h-6 w-6 text-primary" />
