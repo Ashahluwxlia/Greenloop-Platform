@@ -97,7 +97,6 @@ export async function POST(request: NextRequest) {
           .from("users")
           .update({
             points: userProfile.points + pointsValue,
-            total_co2_saved: userProfile.total_co2_saved + co2Impact,
           })
           .eq("id", action.submitted_by)
 
@@ -173,7 +172,6 @@ export async function POST(request: NextRequest) {
           .from("users")
           .update({
             points: userProfile.points + actionLog.points_earned,
-            total_co2_saved: userProfile.total_co2_saved + actionLog.co2_saved,
           })
           .eq("id", actionLog.user_id)
 

@@ -1,19 +1,17 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Navigation } from "@/components/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { InteractiveSearch } from "@/components/admin/interactive-search"
 import { UserActionSubmissionModal } from "@/components/user-action-submission-modal"
 import {
   Target,
-  Search,
   Car,
   Zap,
   Droplets,
@@ -25,7 +23,6 @@ import {
   Laptop,
   Clock,
   Award,
-  Filter,
   Plus,
   User,
   AlertCircle,
@@ -60,13 +57,32 @@ export default function ActionsPage() {
   const [filteredActions, setFilteredActions] = useState<any[]>([])
   const [personalActions, setPersonalActions] = useState<any[]>([])
   const [completedActionIds, setCompletedActionIds] = useState<Set<string>>(new Set())
-  const [searchTerm, setSearchTerm] = useState("")
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState("all")
   const [isLoading, setIsLoading] = useState(true)
 
   const router = useRouter()
   const supabase = createClient()
+
+  const availableCategories = useMemo(() => {
+    const categoryMap = new Map()
+    actions.forEach((action) => {
+      if (action.action_categories) {
+        categoryMap.set(action.action_categories.id, action.action_categories)
+      }
+    })
+    return Array.from(categoryMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+  }, [actions])
+
+  const getActionsForTab = (tabValue: string) => {
+    if (tabValue === "all") {
+      return filteredActions
+    } else if (tabValue === "personal") {
+      return personalActions
+    } else {
+      // Filter by specific category
+      return filteredActions.filter((action) => action.action_categories?.id === tabValue)
+    }
+  }
 
   const loadPersonalActions = async (userId: string) => {
     const { data: personalActionsData } = await supabase
@@ -139,22 +155,68 @@ export default function ActionsPage() {
     loadData()
   }, [router, supabase])
 
-  const handleCategoryFilter = (categoryId: string) => {
-    setSelectedCategories((prev) =>
-      prev.includes(categoryId) ? prev.filter((id) => id !== categoryId) : [...prev, categoryId],
-    )
-  }
-
-  const clearFilters = () => {
-    setSelectedCategories([])
-    setSearchTerm("")
-  }
-
   const handleSubmissionSuccess = async () => {
     if (userProfile?.id) {
       await loadPersonalActions(userProfile.id)
     }
   }
+
+  const filterOptions = useMemo(
+    () => [
+      {
+        key: "action_categories.name",
+        label: "Category",
+        values: [...new Set(actions.map((action) => action.action_categories?.name).filter(Boolean))].sort(),
+      },
+      {
+        key: "difficulty_level",
+        label: "Difficulty Level",
+        values: ["1", "2", "3", "4", "5"],
+      },
+      {
+        key: "points_value",
+        label: "Point Range",
+        values: ["1-10", "11-25", "26-50", "51-100", "100+"],
+      },
+      {
+        key: "co2_impact",
+        label: "CO₂ Impact Range",
+        values: ["0-1", "1-5", "5-10", "10-25", "25+"],
+      },
+    ],
+    [actions],
+  )
+
+  const handleFilteredData = (filtered: any[]) => {
+    setFilteredActions(filtered)
+  }
+
+  const enhancedActions = useMemo(() => {
+    return actions.map((action) => ({
+      ...action,
+      // Add computed fields for filtering
+      point_range:
+        action.points_value <= 10
+          ? "1-10"
+          : action.points_value <= 25
+            ? "11-25"
+            : action.points_value <= 50
+              ? "26-50"
+              : action.points_value <= 100
+                ? "51-100"
+                : "100+",
+      co2_range:
+        action.co2_impact <= 1
+          ? "0-1"
+          : action.co2_impact <= 5
+            ? "1-5"
+            : action.co2_impact <= 10
+              ? "5-10"
+              : action.co2_impact <= 25
+                ? "10-25"
+                : "25+",
+    }))
+  }, [actions])
 
   const getStatusBadge = (action: any) => {
     if (action.is_active) {
@@ -230,80 +292,57 @@ export default function ActionsPage() {
 
           {/* Search and Filters */}
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search actions..."
-                    className="pl-10"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline">
-                      <Filter className="h-4 w-4 mr-2" />
-                      Filter by Category
-                      {selectedCategories.length > 0 && (
-                        <Badge variant="secondary" className="ml-2">
-                          {selectedCategories.length}
-                        </Badge>
-                      )}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    {categories.map((category) => (
-                      <DropdownMenuItem
-                        key={category.id}
-                        onClick={() => handleCategoryFilter(category.id)}
-                        className="flex items-center justify-between"
-                      >
-                        <span>{category.name}</span>
-                        {selectedCategories.includes(category.id) && (
-                          <div className="w-2 h-2 bg-primary rounded-full" />
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                    {selectedCategories.length > 0 && (
-                      <>
-                        <div className="border-t my-1" />
-                        <DropdownMenuItem onClick={clearFilters}>Clear Filters</DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-              {(selectedCategories.length > 0 || searchTerm) && (
-                <div className="flex items-center gap-2 mt-4">
-                  <span className="text-sm text-muted-foreground">Active filters:</span>
-                  {searchTerm && <Badge variant="secondary">Search: "{searchTerm}"</Badge>}
-                  {selectedCategories.map((categoryId) => {
-                    const category = categories.find((c) => c.id === categoryId)
-                    return (
-                      <Badge key={categoryId} variant="secondary">
-                        {category?.name}
-                      </Badge>
-                    )
-                  })}
-                  <Button variant="ghost" size="sm" onClick={clearFilters}>
-                    Clear all
-                  </Button>
-                </div>
-              )}
+            <CardHeader>
+              <CardTitle>Search & Filter Actions</CardTitle>
+              <CardDescription>
+                Find actions by title, description, category, difficulty, points, or CO₂ impact
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <InteractiveSearch
+                data={enhancedActions}
+                onFilteredData={handleFilteredData}
+                searchFields={["title", "description", "action_categories.name"]}
+                filterOptions={[
+                  {
+                    key: "action_categories.name",
+                    label: "Category",
+                    values: [
+                      ...new Set(actions.map((action) => action.action_categories?.name).filter(Boolean)),
+                    ].sort(),
+                  },
+                  {
+                    key: "difficulty_level",
+                    label: "Difficulty Level",
+                    values: ["1", "2", "3", "4", "5"],
+                  },
+                  {
+                    key: "point_range",
+                    label: "Point Range",
+                    values: ["1-10", "11-25", "26-50", "51-100", "100+"],
+                  },
+                  {
+                    key: "co2_range",
+                    label: "CO₂ Impact Range (kg)",
+                    values: ["0-1", "1-5", "5-10", "10-25", "25+"],
+                  },
+                ]}
+                placeholder="Search actions by title, description, or category..."
+              />
             </CardContent>
           </Card>
 
           {/* Categories Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6">
+            <TabsList
+              className={`grid w-full ${availableCategories.length <= 4 ? `grid-cols-${Math.min(availableCategories.length + 2, 6)}` : "grid-cols-6"}`}
+            >
               <TabsTrigger value="all">All Actions</TabsTrigger>
               <TabsTrigger value="personal">
                 <User className="h-4 w-4 mr-1" />
                 Personal
               </TabsTrigger>
-              {categories?.slice(0, 4).map((category) => (
+              {availableCategories.slice(0, 4).map((category) => (
                 <TabsTrigger key={category.id} value={category.id}>
                   {category.name}
                 </TabsTrigger>
@@ -397,12 +436,14 @@ export default function ActionsPage() {
                 <>
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-muted-foreground">
-                      Showing {filteredActions.length} of {actions.length} actions
+                      Showing {getActionsForTab(activeTab).length} of {actions.length} actions
+                      {activeTab !== "all" &&
+                        ` in ${availableCategories.find((c) => c.id === activeTab)?.name || "this category"}`}
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredActions.map((action) => {
+                    {getActionsForTab(activeTab).map((action) => {
                       const IconComponent =
                         categoryIcons[action.action_categories?.name as keyof typeof categoryIcons] || Leaf
                       const isCompleted = completedActionIds.has(action.id)
@@ -473,14 +514,14 @@ export default function ActionsPage() {
                     })}
                   </div>
 
-                  {filteredActions.length === 0 && (
+                  {getActionsForTab(activeTab).length === 0 && (
                     <div className="text-center py-12">
                       <Target className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <h3 className="text-lg font-medium text-muted-foreground mb-2">No actions found</h3>
                       <p className="text-sm text-muted-foreground mb-4">
                         Try adjusting your search terms or filters to find more actions.
                       </p>
-                      <Button variant="outline" onClick={clearFilters}>
+                      <Button variant="outline" onClick={() => window.location.reload()}>
                         Clear Filters
                       </Button>
                     </div>
