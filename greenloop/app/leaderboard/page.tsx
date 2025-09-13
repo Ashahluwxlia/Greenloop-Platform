@@ -344,11 +344,51 @@ export default async function LeaderboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {/* Placeholder for department rankings */}
-                    <div className="text-center py-8 text-muted-foreground">
-                      <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>Department rankings will be available once more data is collected.</p>
-                    </div>
+                    {departmentStats && departmentStats.length > 0 ? (
+                      departmentStats.map((dept: any, index: number) => (
+                        <div
+                          key={dept.department}
+                          className={`flex items-center gap-4 p-4 rounded-lg ${
+                            dept.department === userProfile?.department
+                              ? "bg-purple-50 border border-purple-200"
+                              : "bg-muted/30"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {getRankIcon(dept.rank_by_points)}
+                            <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
+                              <Users className="h-5 w-5 text-purple-600" />
+                            </div>
+                          </div>
+
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-medium">{dept.department}</h3>
+                              {dept.department === userProfile?.department && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Your Dept
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {dept.total_users} member{dept.total_users !== 1 ? "s" : ""}
+                            </p>
+                          </div>
+
+                          <div className="text-right space-y-1">
+                            <div className="text-lg font-bold text-purple-600">{dept.total_points} pts</div>
+                            <div className="text-xs text-muted-foreground">
+                              {dept.total_co2_saved}kg CO₂ • {dept.total_actions} actions
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>No department data available yet.</p>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

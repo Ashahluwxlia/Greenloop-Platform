@@ -1,5 +1,5 @@
 
-\restrict mWjyeIbieFsDydhKMFxdCY6TyqbiQoo2BSDx4eLphTlqD6QVpONC3B1yY4z28iG
+\restrict yp0C4kBFKg7We3cejETHsv5DPFfh4bX6gdQGHjGr5h7I3f6ejuKPdxxJcB1b2fe
 
 
 SET statement_timeout = 0;
@@ -429,6 +429,73 @@ $$;
 
 
 ALTER FUNCTION "public"."ensure_team_leader_in_members"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_department_rankings"() RETURNS TABLE("department" "text", "total_users" bigint, "total_points" bigint, "total_co2_saved" numeric, "avg_points_per_user" numeric, "avg_co2_per_user" numeric, "total_actions" bigint, "rank_by_points" integer, "rank_by_co2" integer, "rank_by_actions" integer)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  RETURN QUERY
+  WITH department_stats AS (
+    SELECT 
+      u.department,
+      COUNT(DISTINCT u.id) as user_count,
+      COALESCE(SUM(u.points), 0) as dept_points,
+      COALESCE(SUM(u.total_co2_saved), 0) as dept_co2_saved,
+      COALESCE(AVG(u.points), 0) as avg_points,
+      COALESCE(AVG(u.total_co2_saved), 0) as avg_co2
+    FROM users u
+    WHERE u.is_active = true AND u.department IS NOT NULL AND u.department != ''
+    GROUP BY u.department
+    HAVING COUNT(DISTINCT u.id) > 0
+  ),
+  department_actions AS (
+    SELECT 
+      u.department,
+      COUNT(ua.id) as action_count
+    FROM users u
+    LEFT JOIN user_actions ua ON u.id = ua.user_id AND ua.verification_status = 'approved'
+    WHERE u.is_active = true AND u.department IS NOT NULL AND u.department != ''
+    GROUP BY u.department
+  ),
+  combined_stats AS (
+    SELECT 
+      ds.department,
+      ds.user_count,
+      ds.dept_points,
+      ds.dept_co2_saved,
+      ds.avg_points,
+      ds.avg_co2,
+      COALESCE(da.action_count, 0) as action_count
+    FROM department_stats ds
+    LEFT JOIN department_actions da ON ds.department = da.department
+  ),
+  ranked_departments AS (
+    SELECT 
+      cs.*,
+      ROW_NUMBER() OVER (ORDER BY cs.dept_points DESC) as points_rank,
+      ROW_NUMBER() OVER (ORDER BY cs.dept_co2_saved DESC) as co2_rank,
+      ROW_NUMBER() OVER (ORDER BY cs.action_count DESC) as actions_rank
+    FROM combined_stats cs
+  )
+  SELECT 
+    rd.department::TEXT,
+    rd.user_count,
+    rd.dept_points,
+    rd.dept_co2_saved,
+    rd.avg_points,
+    rd.avg_co2,
+    rd.action_count,
+    rd.points_rank::INTEGER,
+    rd.co2_rank::INTEGER,
+    rd.actions_rank::INTEGER
+  FROM ranked_departments rd
+  ORDER BY rd.dept_points DESC;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_department_rankings"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_recent_admin_activities"("p_limit" integer DEFAULT 50) RETURNS TABLE("id" "uuid", "admin_name" "text", "action" character varying, "resource_type" character varying, "resource_id" "uuid", "details" "jsonb", "created_at" timestamp with time zone)
@@ -3712,6 +3779,12 @@ GRANT ALL ON FUNCTION "public"."ensure_team_leader_in_members"() TO "service_rol
 
 
 
+GRANT ALL ON FUNCTION "public"."get_department_rankings"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_department_rankings"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_department_rankings"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "service_role";
@@ -4147,6 +4220,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict mWjyeIbieFsDydhKMFxdCY6TyqbiQoo2BSDx4eLphTlqD6QVpONC3B1yY4z28iG
+\unrestrict yp0C4kBFKg7We3cejETHsv5DPFfh4bX6gdQGHjGr5h7I3f6ejuKPdxxJcB1b2fe
 
 RESET ALL;
