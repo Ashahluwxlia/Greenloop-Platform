@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Users, Plus, Crown, Target, Calendar, UserPlus } from "lucide-react"
 import Link from "next/link"
 
@@ -20,8 +21,23 @@ export default async function TeamsPage() {
   // Get user profile
   const { data: userProfile } = await supabase.from("users").select("*").eq("id", data.user.id).single()
 
-  // Get user's current team
-  const { data: userTeamMembership } = await supabase
+  const { data: settings } = await supabase
+    .from("system_settings")
+    .select("setting_value")
+    .eq("key", "team_creation_enabled")
+    .single()
+
+  const teamCreationEnabled = settings?.setting_value === "true"
+
+  const { data: maxTeamSizeSetting } = await supabase
+    .from("system_settings")
+    .select("setting_value")
+    .eq("key", "max_team_size")
+    .single()
+  const systemMaxTeamSize = Number.parseInt(maxTeamSizeSetting?.setting_value || "10")
+
+  // Get user's current team memberships (can be multiple)
+  const { data: userTeamMemberships } = await supabase
     .from("team_members")
     .select(`
       *,
@@ -34,7 +50,6 @@ export default async function TeamsPage() {
       )
     `)
     .eq("user_id", data.user.id)
-    .single()
 
   // Get all teams for browsing
   const { data: allTeams } = await supabase
@@ -50,31 +65,44 @@ export default async function TeamsPage() {
     .order("total_points", { ascending: false })
     .limit(12)
 
-  // Get team challenges if user is in a team
   let teamChallenges = null
-  if (userTeamMembership?.teams?.id) {
+  if (userTeamMemberships && userTeamMemberships.length > 0) {
     const { data: challenges } = await supabase
       .from("challenge_participants")
       .select(`
-        *,
-        challenges (
-          *,
-          challenge_participants (
-            id,
-            current_progress,
-            completed
-          )
+        id,
+        current_progress,
+        completed,
+        joined_at,
+        challenges!inner (
+          id,
+          title,
+          description,
+          target_value,
+          end_date
         )
       `)
-      .eq("team_id", userTeamMembership.teams.id)
+      .eq("team_id", userTeamMemberships[0].teams.id)
       .order("joined_at", { ascending: false })
       .limit(3)
 
-    teamChallenges = challenges
+    const uniqueChallenges = challenges?.reduce((unique: any[], participation: any) => {
+      const exists = unique.find((p) => p.challenges.id === participation.challenges.id)
+      if (!exists) {
+        unique.push(participation)
+      }
+      return unique
+    }, [])
+
+    teamChallenges = uniqueChallenges
   }
 
-  const userTeam = userTeamMembership?.teams
+  const userTeam = userTeamMemberships && userTeamMemberships.length > 0 ? userTeamMemberships[0].teams : null
   const isTeamLeader = userTeam?.team_leader_id === data.user.id
+  const isAdmin = userProfile?.is_admin || false
+  const hasMultipleTeams = userTeamMemberships && userTeamMemberships.length > 1
+
+  const userTeamIds = userTeamMemberships?.map((membership) => membership.teams.id) || []
 
   return (
     <div className="min-h-screen bg-background">
@@ -94,14 +122,24 @@ export default async function TeamsPage() {
                 competition.
               </p>
             </div>
-            {!userTeam && (
-              <Button asChild>
-                <Link href="/teams/create">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Team
-                </Link>
-              </Button>
-            )}
+            <div className="flex gap-3">
+              {isAdmin && (
+                <Button variant="outline" asChild>
+                  <Link href="/admin/teams">
+                    <Crown className="h-4 w-4 mr-2" />
+                    Admin Panel
+                  </Link>
+                </Button>
+              )}
+              {teamCreationEnabled && (
+                <Button asChild>
+                  <Link href="/teams/create">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Team
+                  </Link>
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* User's Team Section */}
@@ -119,12 +157,24 @@ export default async function TeamsPage() {
                         <CardDescription>{userTeam.description}</CardDescription>
                       </div>
                     </div>
-                    {isTeamLeader && (
-                      <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                        <Crown className="h-3 w-3 mr-1" />
-                        Leader
-                      </Badge>
-                    )}
+                    <div className="flex gap-2">
+                      {isTeamLeader && (
+                        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                          <Crown className="h-3 w-3 mr-1" />
+                          Leader
+                        </Badge>
+                      )}
+                      {!isTeamLeader && (
+                        <Badge variant="secondary" className="bg-primary/10 text-primary">
+                          Member
+                        </Badge>
+                      )}
+                      {hasMultipleTeams && (
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                          +{userTeamMemberships.length - 1} more team{userTeamMemberships.length > 2 ? "s" : ""}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -176,11 +226,6 @@ export default async function TeamsPage() {
                     <Button asChild>
                       <Link href={`/teams/${userTeam.id}`}>View Team Dashboard</Link>
                     </Button>
-                    {isTeamLeader && (
-                      <Button variant="outline" asChild>
-                        <Link href={`/teams/${userTeam.id}/manage`}>Manage Team</Link>
-                      </Button>
-                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -230,100 +275,278 @@ export default async function TeamsPage() {
             /* No Team - Browse Teams */
             <Card>
               <CardHeader>
-                <CardTitle>Join a Team</CardTitle>
+                <CardTitle>Team Membership</CardTitle>
                 <CardDescription>
-                  You're not currently part of a team. Join an existing team or create your own to start collaborating
-                  on sustainability goals.
+                  {!teamCreationEnabled
+                    ? "Team creation is currently disabled. Contact your administrator to join a team."
+                    : "You're not currently part of a team. Team membership is managed by administrators - contact your admin to join a team, or create your own team to lead."}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex gap-4">
-                  <Button asChild>
-                    <Link href="/teams/create">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create New Team
-                    </Link>
-                  </Button>
+                  {teamCreationEnabled && (
+                    <Button asChild>
+                      <Link href="/teams/create">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create New Team
+                      </Link>
+                    </Button>
+                  )}
                   <Button variant="outline">Browse Teams Below</Button>
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {/* All Teams */}
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold">All Teams</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {allTeams?.map((team) => (
-                <Card key={team.id} className="hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <CardTitle className="text-lg">{team.name}</CardTitle>
-                        <CardDescription className="mt-1">{team.description}</CardDescription>
-                      </div>
-                      {team.id === userTeam?.id && (
-                        <Badge variant="secondary" className="bg-primary/10 text-primary">
-                          Your Team
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Team Stats */}
-                    <div className="grid grid-cols-2 gap-4 text-center">
-                      <div>
-                        <div className="text-lg font-bold text-primary">{team.total_points}</div>
-                        <p className="text-xs text-muted-foreground">Points</p>
-                      </div>
-                      <div>
-                        <div className="text-lg font-bold text-accent">{team.total_co2_saved}kg</div>
-                        <p className="text-xs text-muted-foreground">CO₂ Saved</p>
-                      </div>
-                    </div>
+          <Tabs defaultValue="all" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="all">All Teams</TabsTrigger>
+              {userTeamMemberships && userTeamMemberships.length > 0 && (
+                <TabsTrigger value="your-teams">Your Teams ({userTeamMemberships.length})</TabsTrigger>
+              )}
+              <TabsTrigger value="available-teams">Available Teams</TabsTrigger>
+            </TabsList>
 
-                    {/* Team Members Preview */}
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          {team.team_members?.length || 0} / {team.max_members} members
-                        </span>
-                      </div>
-                      <div className="flex -space-x-2">
-                        {team.team_members?.slice(0, 5).map((member: any, index: number) => (
-                          <Avatar key={member.id} className="h-8 w-8 border-2 border-background">
-                            <AvatarImage src={member.users?.avatar_url || "/placeholder.svg"} />
-                            <AvatarFallback className="text-xs">
-                              {member.users?.first_name?.[0]}
-                              {member.users?.last_name?.[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                        ))}
-                        {(team.team_members?.length || 0) > 5 && (
-                          <div className="h-8 w-8 rounded-full bg-muted border-2 border-background flex items-center justify-center">
-                            <span className="text-xs font-medium">+{(team.team_members?.length || 0) - 5}</span>
+            <TabsContent value="all" className="space-y-4">
+              <h2 className="text-2xl font-bold">All Teams</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {allTeams?.map((team) => {
+                  const effectiveMaxMembers = Math.min(team.max_members, systemMaxTeamSize)
+                  const currentMembers = team.team_members?.length || 0
+                  const isTeamFull = currentMembers >= effectiveMaxMembers
+                  const isUserTeam = userTeamIds.includes(team.id)
+
+                  return (
+                    <Card key={team.id} className="hover:shadow-md transition-shadow">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <CardTitle className="text-lg">{team.name}</CardTitle>
+                            <CardDescription className="mt-1">{team.description}</CardDescription>
                           </div>
-                        )}
-                      </div>
-                    </div>
+                          {isUserTeam && (
+                            <Badge variant="secondary" className="bg-primary/10 text-primary">
+                              Your Team
+                            </Badge>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Team Stats */}
+                        <div className="grid grid-cols-2 gap-4 text-center">
+                          <div>
+                            <div className="text-lg font-bold text-primary">{team.total_points}</div>
+                            <p className="text-xs text-muted-foreground">Points</p>
+                          </div>
+                          <div>
+                            <div className="text-lg font-bold text-accent">{team.total_co2_saved}kg</div>
+                            <p className="text-xs text-muted-foreground">CO₂ Saved</p>
+                          </div>
+                        </div>
 
-                    {/* Action Button */}
-                    <Button
-                      variant={team.id === userTeam?.id ? "outline" : "default"}
-                      className="w-full"
-                      asChild
-                      disabled={(team.team_members?.length || 0) >= team.max_members && team.id !== userTeam?.id}
-                    >
-                      <Link href={`/teams/${team.id}`}>
-                        {team.id === userTeam?.id ? "View Dashboard" : "View Team"}
-                      </Link>
-                    </Button>
+                        {/* Team Members Preview */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Users className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                              {currentMembers} / {effectiveMaxMembers} members
+                            </span>
+                            {isTeamFull && (
+                              <Badge variant="secondary" className="text-xs">
+                                Full
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex -space-x-2">
+                            {team.team_members?.slice(0, 5).map((member: any, index: number) => (
+                              <Avatar key={member.id} className="h-8 w-8 border-2 border-background">
+                                <AvatarImage src={member.users?.avatar_url || "/placeholder.svg"} />
+                                <AvatarFallback className="text-xs">
+                                  {member.users?.first_name?.[0]}
+                                  {member.users?.last_name?.[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                            ))}
+                            {currentMembers > 5 && (
+                              <div className="h-8 w-8 rounded-full bg-muted border-2 border-background flex items-center justify-center">
+                                <span className="text-xs font-medium">+{currentMembers - 5}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Button */}
+                        <Button variant="default" className="w-full" asChild disabled={isTeamFull && !isUserTeam}>
+                          <Link href={`/teams/${team.id}`}>{isUserTeam ? "View Dashboard" : "View Team"}</Link>
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            </TabsContent>
+
+            {userTeamMemberships && userTeamMemberships.length > 0 && (
+              <TabsContent value="your-teams" className="space-y-4">
+                <h2 className="text-2xl font-bold">Your Teams</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {userTeamMemberships.map((membership) => {
+                    const team = membership.teams
+                    const effectiveMaxMembers = Math.min(team.max_members, systemMaxTeamSize)
+                    const currentMembers = team.team_members?.length || 0
+                    const isTeamFull = currentMembers >= effectiveMaxMembers
+
+                    return (
+                      <Card key={team.id} className="hover:shadow-md transition-shadow border-primary/20">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <CardTitle className="text-lg">{team.name}</CardTitle>
+                              <CardDescription className="mt-1">{team.description}</CardDescription>
+                            </div>
+                            <Badge variant="secondary" className="bg-primary/10 text-primary">
+                              Your Team
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {/* Team Stats */}
+                          <div className="grid grid-cols-2 gap-4 text-center">
+                            <div>
+                              <div className="text-lg font-bold text-primary">{team.total_points}</div>
+                              <p className="text-sm text-muted-foreground">Points</p>
+                            </div>
+                            <div>
+                              <div className="text-lg font-bold text-accent">{team.total_co2_saved}kg</div>
+                              <p className="text-sm text-muted-foreground">CO₂ Saved</p>
+                            </div>
+                          </div>
+
+                          {/* Team Members Preview */}
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Users className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">
+                                {currentMembers} / {effectiveMaxMembers} members
+                              </span>
+                            </div>
+                            <div className="flex -space-x-2">
+                              {team.team_members?.slice(0, 5).map((member: any, index: number) => (
+                                <Avatar key={member.id} className="h-8 w-8 border-2 border-background">
+                                  <AvatarImage src={member.users?.avatar_url || "/placeholder.svg"} />
+                                  <AvatarFallback className="text-xs">
+                                    {member.users?.first_name?.[0]}
+                                    {member.users?.last_name?.[0]}
+                                  </AvatarFallback>
+                                </Avatar>
+                              ))}
+                              {currentMembers > 5 && (
+                                <div className="h-8 w-8 rounded-full bg-muted border-2 border-background flex items-center justify-center">
+                                  <span className="text-xs font-medium">+{currentMembers - 5}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Button */}
+                          <Button variant="default" className="w-full" asChild>
+                            <Link href={`/teams/${team.id}`}>View Dashboard</Link>
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+              </TabsContent>
+            )}
+
+            <TabsContent value="available-teams" className="space-y-4">
+              <h2 className="text-2xl font-bold">Available Teams</h2>
+              <p className="text-muted-foreground">Teams you can explore and potentially join.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {allTeams
+                  ?.filter((team) => !userTeamIds.includes(team.id))
+                  .map((team) => {
+                    const effectiveMaxMembers = Math.min(team.max_members, systemMaxTeamSize)
+                    const currentMembers = team.team_members?.length || 0
+                    const isTeamFull = currentMembers >= effectiveMaxMembers
+
+                    return (
+                      <Card key={team.id} className="hover:shadow-md transition-shadow">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <CardTitle className="text-lg">{team.name}</CardTitle>
+                              <CardDescription className="mt-1">{team.description}</CardDescription>
+                            </div>
+                            {isTeamFull && (
+                              <Badge variant="secondary" className="bg-orange-100 text-orange-800">
+                                Full
+                              </Badge>
+                            )}
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {/* Team Stats */}
+                          <div className="grid grid-cols-2 gap-4 text-center">
+                            <div>
+                              <div className="text-lg font-bold text-primary">{team.total_points}</div>
+                              <p className="text-xs text-muted-foreground">Points</p>
+                            </div>
+                            <div>
+                              <div className="text-lg font-bold text-accent">{team.total_co2_saved}kg</div>
+                              <p className="text-xs text-muted-foreground">CO₂ Saved</p>
+                            </div>
+                          </div>
+
+                          {/* Team Members Preview */}
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Users className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">
+                                {currentMembers} / {effectiveMaxMembers} members
+                              </span>
+                            </div>
+                            <div className="flex -space-x-2">
+                              {team.team_members?.slice(0, 5).map((member: any, index: number) => (
+                                <Avatar key={member.id} className="h-8 w-8 border-2 border-background">
+                                  <AvatarImage src={member.users?.avatar_url || "/placeholder.svg"} />
+                                  <AvatarFallback className="text-xs">
+                                    {member.users?.first_name?.[0]}
+                                    {member.users?.last_name?.[0]}
+                                  </AvatarFallback>
+                                </Avatar>
+                              ))}
+                              {currentMembers > 5 && (
+                                <div className="h-8 w-8 rounded-full bg-muted border-2 border-background flex items-center justify-center">
+                                  <span className="text-xs font-medium">+{currentMembers - 5}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Button */}
+                          <Button variant="outline" className="w-full bg-transparent" asChild>
+                            <Link href={`/teams/${team.id}`}>View Team</Link>
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+              </div>
+              {allTeams?.filter((team) => !userTeamIds.includes(team.id)).length === 0 && (
+                <Card>
+                  <CardContent className="text-center py-8">
+                    <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <h3 className="font-medium mb-2">No available teams</h3>
+                    <p className="text-sm text-muted-foreground">
+                      You're already a member of all available teams, or there are no other teams to join.
+                    </p>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-          </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
     </div>

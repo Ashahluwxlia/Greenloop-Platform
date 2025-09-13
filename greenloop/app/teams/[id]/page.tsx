@@ -7,19 +7,9 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Users,
-  Crown,
-  Award,
-  Target,
-  Calendar,
-  UserPlus,
-  Settings,
-  TrendingUp,
-  Activity,
-  ArrowLeft,
-} from "lucide-react"
+import { Users, Crown, Award, Target, Calendar, TrendingUp, ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { TeamMemberActions } from "@/components/team-member-actions"
 
 interface TeamPageProps {
   params: {
@@ -99,30 +89,17 @@ export default async function TeamPage({ params }: TeamPageProps) {
   const { data: teamChallenges } = await supabase
     .from("challenge_participants")
     .select(`
-      *,
-      challenges (
+      id,
+      current_progress,
+      completed,
+      joined_at,
+      challenges!inner (
         id, title, description, challenge_type, start_date, end_date,
         target_metric, target_value, reward_points, reward_description
       )
     `)
     .eq("team_id", params.id)
     .order("joined_at", { ascending: false })
-
-  // Get recent team activity
-  const teamMemberIds = team.team_members?.map((member: any) => member.user_id) || []
-  const { data: recentActivity } = teamMemberIds.length
-    ? await supabase
-        .from("user_actions")
-        .select(`
-          *,
-          users (first_name, last_name, avatar_url),
-          sustainability_actions (title, points_value, co2_impact)
-        `)
-        .in("user_id", teamMemberIds)
-        .eq("verification_status", "approved")
-        .order("completed_at", { ascending: false })
-        .limit(10)
-    : { data: [] }
 
   const totalMembers = team.team_members?.length || 0
   const avgPointsPerMember = totalMembers > 0 ? Math.round(team.total_points / totalMembers) : 0
@@ -169,17 +146,11 @@ export default async function TeamPage({ params }: TeamPageProps) {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  {!isMember && totalMembers < team.max_members && (
-                    <Button>
-                      <UserPlus className="h-4 w-4 mr-2" />
-                      Join Team
-                    </Button>
-                  )}
-                  {isTeamLeader && (
+                  {userProfile?.is_admin && (
                     <Button variant="outline" asChild>
-                      <Link href={`/teams/${team.id}/manage`}>
-                        <Settings className="h-4 w-4 mr-2" />
-                        Manage
+                      <Link href={`/admin/teams/${team.id}/members`}>
+                        <Crown className="h-4 w-4 mr-2" />
+                        Admin Manage
                       </Link>
                     </Button>
                   )}
@@ -210,10 +181,9 @@ export default async function TeamPage({ params }: TeamPageProps) {
 
           {/* Team Content */}
           <Tabs defaultValue="members" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="members">Members</TabsTrigger>
               <TabsTrigger value="challenges">Challenges</TabsTrigger>
-              <TabsTrigger value="activity">Activity</TabsTrigger>
               <TabsTrigger value="stats">Statistics</TabsTrigger>
             </TabsList>
 
@@ -221,10 +191,17 @@ export default async function TeamPage({ params }: TeamPageProps) {
             <TabsContent value="members" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="h-5 w-5" />
-                    Team Members ({totalMembers}/{team.max_members})
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Team Members ({totalMembers}/{team.max_members})
+                    </CardTitle>
+                    <TeamMemberActions
+                      teamId={params.id}
+                      isTeamLeader={isTeamLeader}
+                      isAdmin={userProfile?.is_admin || false}
+                    />
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -258,6 +235,18 @@ export default async function TeamPage({ params }: TeamPageProps) {
                           <div className="text-xs text-accent">{Math.round(member.users?.total_co2_saved)}kg CO₂</div>
                           <div className="text-xs text-muted-foreground">{member.users?.verified_actions} actions</div>
                         </div>
+                        {member.role !== "leader" && (
+                          <div className="relative">
+                            <TeamMemberActions
+                              teamId={params.id}
+                              memberId={member.user_id}
+                              memberName={`${member.users?.first_name} ${member.users?.last_name}`}
+                              memberEmail={member.users?.email}
+                              isTeamLeader={isTeamLeader}
+                              isAdmin={userProfile?.is_admin || false}
+                            />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -281,54 +270,62 @@ export default async function TeamPage({ params }: TeamPageProps) {
 
               {teamChallenges && teamChallenges.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {teamChallenges.map((participation: any) => {
-                    const challenge = participation.challenges
-                    const progress = (participation.current_progress / challenge.target_value) * 100
-                    const isActive = new Date(challenge.end_date) > new Date()
+                  {teamChallenges
+                    .reduce((unique: any[], participation: any) => {
+                      const exists = unique.find((p) => p.challenges.id === participation.challenges.id)
+                      if (!exists) {
+                        unique.push(participation)
+                      }
+                      return unique
+                    }, [])
+                    .map((participation: any) => {
+                      const challenge = participation.challenges
+                      const progress = (participation.current_progress / challenge.target_value) * 100
+                      const isActive = new Date(challenge.end_date) > new Date()
 
-                    return (
-                      <Card key={participation.id} className={isActive ? "" : "opacity-75"}>
-                        <CardHeader className="pb-3">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <CardTitle className="text-lg">{challenge.title}</CardTitle>
-                              <CardDescription className="mt-1">{challenge.description}</CardDescription>
-                            </div>
-                            <Badge variant={isActive ? "default" : "secondary"}>
-                              {isActive ? "Active" : "Completed"}
-                            </Badge>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                              <span>Progress</span>
-                              <span className="font-medium">{Math.round(progress)}%</span>
-                            </div>
-                            <Progress value={progress} className="h-2" />
-                            <p className="text-xs text-muted-foreground">
-                              {participation.current_progress} / {challenge.target_value} {challenge.target_metric}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center justify-between text-sm">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              <span className="text-muted-foreground">
-                                Ends {new Date(challenge.end_date).toLocaleDateString()}
-                              </span>
-                            </div>
-                            {challenge.reward_points && (
-                              <div className="flex items-center gap-1">
-                                <Award className="h-3 w-3 text-primary" />
-                                <span className="text-primary font-medium">+{challenge.reward_points} pts</span>
+                      return (
+                        <Card key={challenge.id} className={isActive ? "" : "opacity-75"}>
+                          <CardHeader className="pb-3">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <CardTitle className="text-lg">{challenge.title}</CardTitle>
+                                <CardDescription className="mt-1">{challenge.description}</CardDescription>
                               </div>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )
-                  })}
+                              <Badge variant={isActive ? "default" : "secondary"}>
+                                {isActive ? "Active" : "Completed"}
+                              </Badge>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <div className="space-y-2">
+                              <div className="flex justify-between text-sm">
+                                <span>Progress</span>
+                                <span className="font-medium">{Math.round(progress)}%</span>
+                              </div>
+                              <Progress value={progress} className="h-2" />
+                              <p className="text-xs text-muted-foreground">
+                                {participation.current_progress} / {challenge.target_value} {challenge.target_metric}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center justify-between text-sm">
+                              <div className="flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                <span className="text-muted-foreground">
+                                  Ends {new Date(challenge.end_date).toLocaleDateString()}
+                                </span>
+                              </div>
+                              {challenge.reward_points && (
+                                <div className="flex items-center gap-1">
+                                  <Award className="h-3 w-3 text-primary" />
+                                  <span className="text-primary font-medium">+{challenge.reward_points} pts</span>
+                                </div>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
                 </div>
               ) : (
                 <Card>
@@ -346,57 +343,6 @@ export default async function TeamPage({ params }: TeamPageProps) {
                   </CardContent>
                 </Card>
               )}
-            </TabsContent>
-
-            {/* Activity Tab */}
-            <TabsContent value="activity" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="h-5 w-5" />
-                    Recent Team Activity
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {recentActivity && recentActivity.length > 0 ? (
-                    <div className="space-y-4">
-                      {recentActivity.map((action: any) => (
-                        <div key={action.id} className="flex items-center gap-4 p-3 bg-muted/30 rounded-lg">
-                          <Avatar className="h-10 w-10">
-                            <AvatarImage src={action.users?.avatar_url || "/placeholder.svg"} />
-                            <AvatarFallback>
-                              {action.users?.first_name?.[0]}
-                              {action.users?.last_name?.[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1">
-                            <p className="font-medium">
-                              {action.users?.first_name} {action.users?.last_name}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              Completed: {action.sustainability_actions?.title}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-medium text-primary">
-                              +{action.sustainability_actions?.points_value} pts
-                            </div>
-                            <div className="text-xs text-accent">{action.sustainability_actions?.co2_impact}kg CO₂</div>
-                            <div className="text-xs text-muted-foreground">
-                              {new Date(action.completed_at).toLocaleDateString()}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Activity className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                      <p className="text-muted-foreground">No recent activity</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
             </TabsContent>
 
             {/* Statistics Tab */}

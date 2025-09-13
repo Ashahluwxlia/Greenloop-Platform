@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Users, ArrowLeft, AlertCircle, CheckCircle } from "lucide-react"
 import Link from "next/link"
@@ -26,6 +25,8 @@ export default function CreateTeamPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [teamCreationEnabled, setTeamCreationEnabled] = useState(true)
+  const [systemMaxTeamSize, setSystemMaxTeamSize] = useState(10)
   const router = useRouter()
   const supabase = createClient()
 
@@ -42,7 +43,28 @@ export default function CreateTeamPage() {
 
         setUser(userProfile)
 
-        // Check if user is already in a team
+        const { data: teamCreationSetting } = await supabase
+          .from("system_settings")
+          .select("setting_value")
+          .eq("key", "team_creation_enabled")
+          .single()
+        const { data: maxTeamSizeSetting } = await supabase
+          .from("system_settings")
+          .select("setting_value")
+          .eq("key", "max_team_size")
+          .single()
+
+        const creationEnabled = teamCreationSetting?.setting_value === "true"
+        const maxTeamSize = Number.parseInt(maxTeamSizeSetting?.setting_value || "10")
+
+        setTeamCreationEnabled(creationEnabled)
+        setSystemMaxTeamSize(maxTeamSize)
+
+        if (!creationEnabled && !userProfile?.is_admin) {
+          router.push("/teams")
+          return
+        }
+
         const { data: existingMembership } = await supabase
           .from("team_members")
           .select("id")
@@ -75,33 +97,46 @@ export default function CreateTeamPage() {
     setError(null)
 
     try {
-      // Create the team
+      const maxMembers = Math.min(Number.parseInt(formData.maxMembers), systemMaxTeamSize)
+
       const { data: newTeam, error: teamError } = await supabase
         .from("teams")
         .insert({
           name: formData.name,
           description: formData.description,
           team_leader_id: user.id,
-          max_members: Number.parseInt(formData.maxMembers),
+          max_members: maxMembers,
         })
         .select()
         .single()
 
       if (teamError) throw teamError
 
-      // Add the creator as the first team member
-      const { error: memberError } = await supabase.from("team_members").insert({
-        team_id: newTeam.id,
-        user_id: user.id,
-        role: "leader",
-      })
+      const { data: existingMembership } = await supabase
+        .from("team_members")
+        .select("id")
+        .eq("team_id", newTeam.id)
+        .eq("user_id", user.id)
+        .single()
 
-      if (memberError) throw memberError
+      if (!existingMembership) {
+        const { error: memberError } = await supabase.from("team_members").insert({
+          team_id: newTeam.id,
+          user_id: user.id,
+          role: "leader",
+        })
 
-      // Redirect to the new team page
+        if (memberError) throw memberError
+      }
+
       router.push(`/teams/${newTeam.id}`)
     } catch (err: any) {
-      setError(err.message || "Failed to create team")
+      if (err.message?.includes("duplicate key value violates unique constraint")) {
+        setError("You are already a member of this team. Redirecting...")
+        setTimeout(() => router.push("/teams"), 2000)
+      } else {
+        setError(err.message || "Failed to create team")
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -123,13 +158,36 @@ export default function CreateTeamPage() {
     )
   }
 
+  if (!teamCreationEnabled && !user?.is_admin) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation user={user} />
+        <main className="container mx-auto px-4 py-8">
+          <div className="max-w-2xl mx-auto">
+            <Card>
+              <CardContent className="text-center py-8">
+                <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="font-medium mb-2">Team Creation Disabled</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Team creation is currently disabled. Contact your administrator for assistance.
+                </p>
+                <Button asChild>
+                  <Link href="/teams">Back to Teams</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation user={user} />
 
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto space-y-6">
-          {/* Back Button */}
           <Button variant="ghost" asChild className="mb-4">
             <Link href="/teams">
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -137,7 +195,6 @@ export default function CreateTeamPage() {
             </Link>
           </Button>
 
-          {/* Header */}
           <div className="space-y-2">
             <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
               <Users className="h-8 w-8 text-primary" />
@@ -148,7 +205,6 @@ export default function CreateTeamPage() {
             </p>
           </div>
 
-          {/* Form */}
           <Card>
             <CardHeader>
               <CardTitle>Team Details</CardTitle>
@@ -187,20 +243,18 @@ export default function CreateTeamPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="maxMembers">Maximum Members</Label>
-                  <Select value={formData.maxMembers} onValueChange={(value) => handleInputChange("maxMembers", value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="5">5 members</SelectItem>
-                      <SelectItem value="10">10 members</SelectItem>
-                      <SelectItem value="15">15 members</SelectItem>
-                      <SelectItem value="20">20 members</SelectItem>
-                      <SelectItem value="25">25 members</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    id="maxMembers"
+                    type="number"
+                    min="2"
+                    max={systemMaxTeamSize}
+                    value={formData.maxMembers}
+                    onChange={(e) => handleInputChange("maxMembers", e.target.value)}
+                    placeholder={`Enter number (max ${systemMaxTeamSize})`}
+                  />
                   <p className="text-xs text-muted-foreground">
-                    You can always adjust this later. Smaller teams often have better collaboration.
+                    You can always adjust this later. Maximum allowed: {systemMaxTeamSize} members. Smaller teams often
+                    have better collaboration.
                   </p>
                 </div>
 
@@ -223,7 +277,6 @@ export default function CreateTeamPage() {
             </CardContent>
           </Card>
 
-          {/* Info Card */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">What happens next?</CardTitle>
