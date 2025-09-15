@@ -1,5 +1,5 @@
 
-\restrict NgJGJAzuzZFnYNgwf52Zf3hL9L1F5mWZMVIsErfOVQ7sTGvQvLP5Jaj6kw5sCVC
+\restrict 9GDU80h27Qh4aBOG7KGfoc1v3ypGz6NgtmXNhG3derXk34W2TfdS41SfRvXOb5S
 
 
 SET statement_timeout = 0;
@@ -664,6 +664,77 @@ $$;
 
 
 ALTER FUNCTION "public"."get_user_activity_summary"("p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_user_available_rewards"("user_uuid" "uuid") RETURNS TABLE("level" integer, "reward_id" "uuid", "reward_title" character varying, "reward_description" "text", "reward_type" character varying, "already_claimed" boolean)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    current_level INTEGER;
+BEGIN
+    -- Get user's current level
+    SELECT get_user_current_level(user_uuid) INTO current_level;
+    
+    -- Return rewards for all completed levels
+    RETURN QUERY
+    SELECT 
+        lr.level,
+        lr.id as reward_id,
+        lr.reward_title,
+        lr.reward_description,
+        lr.reward_type,
+        CASE 
+            WHEN ulr.id IS NOT NULL THEN true 
+            ELSE false 
+        END as already_claimed
+    FROM level_rewards lr
+    LEFT JOIN user_level_rewards ulr ON (
+        lr.id = ulr.level_reward_id 
+        AND ulr.user_id = user_uuid
+    )
+    WHERE lr.level <= current_level 
+    AND lr.is_active = true
+    ORDER BY lr.level ASC, lr.reward_title ASC;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_user_available_rewards"("user_uuid" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    total_points INTEGER;
+    user_level INTEGER;
+BEGIN
+    -- Get total points for user
+    SELECT COALESCE(SUM(points), 0) INTO total_points
+    FROM point_transactions
+    WHERE user_id = user_uuid;
+    
+    -- Determine level based on points
+    CASE 
+        WHEN total_points >= 100000 THEN user_level := 10;
+        WHEN total_points >= 50000 THEN user_level := 9;
+        WHEN total_points >= 20000 THEN user_level := 8;
+        WHEN total_points >= 10000 THEN user_level := 7;
+        WHEN total_points >= 5000 THEN user_level := 6;
+        WHEN total_points >= 2000 THEN user_level := 5;
+        WHEN total_points >= 1000 THEN user_level := 4;
+        WHEN total_points >= 500 THEN user_level := 3;
+        WHEN total_points >= 250 THEN user_level := 2;
+        WHEN total_points >= 100 THEN user_level := 1;
+        ELSE user_level := 0;
+    END CASE;
+    
+    RETURN user_level;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
@@ -2121,6 +2192,23 @@ CREATE TABLE IF NOT EXISTS "public"."content_items" (
 ALTER TABLE "public"."content_items" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."level_rewards" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "level" integer NOT NULL,
+    "reward_title" character varying(255) NOT NULL,
+    "reward_description" "text" NOT NULL,
+    "reward_type" character varying(50) NOT NULL,
+    "is_active" boolean DEFAULT true,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "level_rewards_level_check" CHECK ((("level" >= 1) AND ("level" <= 10))),
+    CONSTRAINT "level_rewards_reward_type_check" CHECK ((("reward_type")::"text" = ANY ((ARRAY['physical'::character varying, 'digital'::character varying, 'experience'::character varying, 'privilege'::character varying])::"text"[])))
+);
+
+
+ALTER TABLE "public"."level_rewards" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."news_articles" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "title" "text" NOT NULL,
@@ -2318,6 +2406,28 @@ CREATE TABLE IF NOT EXISTS "public"."user_badges" (
 ALTER TABLE "public"."user_badges" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."user_level_rewards" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "level" integer NOT NULL,
+    "level_reward_id" "uuid" NOT NULL,
+    "claim_status" character varying(20) DEFAULT 'pending'::character varying,
+    "claimed_at" timestamp with time zone DEFAULT "now"(),
+    "approved_at" timestamp with time zone,
+    "approved_by" "uuid",
+    "admin_notes" "text",
+    "user_email" character varying(255) NOT NULL,
+    "user_name" character varying(255) NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "user_level_rewards_claim_status_check" CHECK ((("claim_status")::"text" = ANY ((ARRAY['pending'::character varying, 'approved'::character varying, 'rejected'::character varying, 'delivered'::character varying])::"text"[]))),
+    CONSTRAINT "user_level_rewards_level_check" CHECK ((("level" >= 1) AND ("level" <= 10)))
+);
+
+
+ALTER TABLE "public"."user_level_rewards" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."user_preferences" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -2443,6 +2553,11 @@ ALTER TABLE ONLY "public"."content_items"
 
 
 
+ALTER TABLE ONLY "public"."level_rewards"
+    ADD CONSTRAINT "level_rewards_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."news_articles"
     ADD CONSTRAINT "news_articles_pkey" PRIMARY KEY ("id");
 
@@ -2520,6 +2635,16 @@ ALTER TABLE ONLY "public"."user_badges"
 
 ALTER TABLE ONLY "public"."user_badges"
     ADD CONSTRAINT "user_badges_user_id_badge_id_key" UNIQUE ("user_id", "badge_id");
+
+
+
+ALTER TABLE ONLY "public"."user_level_rewards"
+    ADD CONSTRAINT "user_level_rewards_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."user_level_rewards"
+    ADD CONSTRAINT "user_level_rewards_user_id_level_level_reward_id_key" UNIQUE ("user_id", "level", "level_reward_id");
 
 
 
@@ -2653,6 +2778,14 @@ CREATE INDEX "idx_content_items_type" ON "public"."content_items" USING "btree" 
 
 
 
+CREATE INDEX "idx_level_rewards_active" ON "public"."level_rewards" USING "btree" ("is_active");
+
+
+
+CREATE INDEX "idx_level_rewards_level" ON "public"."level_rewards" USING "btree" ("level");
+
+
+
 CREATE INDEX "idx_news_articles_category" ON "public"."news_articles" USING "btree" ("category");
 
 
@@ -2774,6 +2907,18 @@ CREATE INDEX "idx_user_analytics_event_type" ON "public"."user_analytics" USING 
 
 
 CREATE INDEX "idx_user_analytics_user_id" ON "public"."user_analytics" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_user_level_rewards_level" ON "public"."user_level_rewards" USING "btree" ("level");
+
+
+
+CREATE INDEX "idx_user_level_rewards_status" ON "public"."user_level_rewards" USING "btree" ("claim_status");
+
+
+
+CREATE INDEX "idx_user_level_rewards_user_id" ON "public"."user_level_rewards" USING "btree" ("user_id");
 
 
 
@@ -3078,6 +3223,21 @@ ALTER TABLE ONLY "public"."user_badges"
 
 
 
+ALTER TABLE ONLY "public"."user_level_rewards"
+    ADD CONSTRAINT "user_level_rewards_approved_by_fkey" FOREIGN KEY ("approved_by") REFERENCES "auth"."users"("id");
+
+
+
+ALTER TABLE ONLY "public"."user_level_rewards"
+    ADD CONSTRAINT "user_level_rewards_level_reward_id_fkey" FOREIGN KEY ("level_reward_id") REFERENCES "public"."level_rewards"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."user_level_rewards"
+    ADD CONSTRAINT "user_level_rewards_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."user_preferences"
     ADD CONSTRAINT "user_preferences_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
 
@@ -3099,6 +3259,18 @@ CREATE POLICY "Admins can insert admin activities" ON "public"."admin_activities
 
 
 
+CREATE POLICY "Admins can manage level rewards" ON "public"."level_rewards" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "Admins can update reward claims" ON "public"."user_level_rewards" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
 CREATE POLICY "Admins can view all admin activities" ON "public"."admin_activities" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."users"
   WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))));
@@ -3111,6 +3283,16 @@ CREATE POLICY "Admins can view all preferences" ON "public"."user_preferences" F
 
 
 
+CREATE POLICY "Admins can view all reward claims" ON "public"."user_level_rewards" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "Users can create their own reward claims" ON "public"."user_level_rewards" FOR INSERT TO "authenticated" WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
 CREATE POLICY "Users can insert their own preferences" ON "public"."user_preferences" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
 
 
@@ -3119,7 +3301,15 @@ CREATE POLICY "Users can update their own preferences" ON "public"."user_prefere
 
 
 
+CREATE POLICY "Users can view active level rewards" ON "public"."level_rewards" FOR SELECT TO "authenticated" USING (("is_active" = true));
+
+
+
 CREATE POLICY "Users can view their own preferences" ON "public"."user_preferences" FOR SELECT USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users can view their own reward claims" ON "public"."user_level_rewards" FOR SELECT TO "authenticated" USING (("user_id" = "auth"."uid"()));
 
 
 
@@ -3381,6 +3571,9 @@ CREATE POLICY "content_items_update_admin" ON "public"."content_items" FOR UPDAT
 
 
 
+ALTER TABLE "public"."level_rewards" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."news_articles" ENABLE ROW LEVEL SECURITY;
 
 
@@ -3558,6 +3751,9 @@ CREATE POLICY "user_badges_insert_system_only" ON "public"."user_badges" FOR INS
 
 CREATE POLICY "user_badges_select_all" ON "public"."user_badges" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
 
+
+
+ALTER TABLE "public"."user_level_rewards" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."user_preferences" ENABLE ROW LEVEL SECURITY;
@@ -3915,6 +4111,18 @@ GRANT ALL ON FUNCTION "public"."get_user_activity_summary"("p_user_id" "uuid") T
 
 
 
+GRANT ALL ON FUNCTION "public"."get_user_available_rewards"("user_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_user_available_rewards"("user_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_user_available_rewards"("user_uuid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "anon";
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
@@ -4212,6 +4420,12 @@ GRANT ALL ON TABLE "public"."content_items" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."level_rewards" TO "anon";
+GRANT ALL ON TABLE "public"."level_rewards" TO "authenticated";
+GRANT ALL ON TABLE "public"."level_rewards" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."news_articles" TO "anon";
 GRANT ALL ON TABLE "public"."news_articles" TO "authenticated";
 GRANT ALL ON TABLE "public"."news_articles" TO "service_role";
@@ -4257,6 +4471,12 @@ GRANT ALL ON TABLE "public"."user_analytics" TO "service_role";
 GRANT ALL ON TABLE "public"."user_badges" TO "anon";
 GRANT ALL ON TABLE "public"."user_badges" TO "authenticated";
 GRANT ALL ON TABLE "public"."user_badges" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."user_level_rewards" TO "anon";
+GRANT ALL ON TABLE "public"."user_level_rewards" TO "authenticated";
+GRANT ALL ON TABLE "public"."user_level_rewards" TO "service_role";
 
 
 
@@ -4332,6 +4552,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict NgJGJAzuzZFnYNgwf52Zf3hL9L1F5mWZMVIsErfOVQ7sTGvQvLP5Jaj6kw5sCVC
+\unrestrict 9GDU80h27Qh4aBOG7KGfoc1v3ypGz6NgtmXNhG3derXk34W2TfdS41SfRvXOb5S
 
 RESET ALL;
