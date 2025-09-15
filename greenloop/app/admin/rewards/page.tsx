@@ -1,0 +1,402 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useEffect } from "react"
+import { createBrowserClient } from "@supabase/ssr"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Gift, Clock, CheckCircle, XCircle, Mail, User, Calendar, MessageSquare } from "lucide-react"
+import { toast } from "@/hooks/use-toast"
+
+interface RewardClaim {
+  id: string
+  user_id: string
+  level: number
+  level_reward_id: string
+  status: "pending" | "approved" | "denied" | "delivered"
+  claimed_at: string
+  approved_at?: string
+  approved_by?: string
+  admin_notes?: string
+  user_email: string
+  user_name: string
+  reward_title: string
+  reward_description: string
+  reward_type: string
+}
+
+interface RewardStats {
+  total_claims: number
+  pending_claims: number
+  approved_claims: number
+  denied_claims: number
+  delivered_claims: number
+}
+
+export default function AdminRewardsPage() {
+  const [claims, setClaims] = useState<RewardClaim[]>([])
+  const [stats, setStats] = useState<RewardStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState<string | null>(null)
+  const [selectedStatus, setSelectedStatus] = useState<string>("all")
+
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  )
+
+  useEffect(() => {
+    fetchRewardClaims()
+  }, [])
+
+  const fetchRewardClaims = async () => {
+    try {
+      const response = await fetch("/api/admin/rewards")
+      if (!response.ok) throw new Error("Failed to fetch reward claims")
+
+      const data = await response.json()
+      const transformedClaims =
+        data.rewardClaims?.map((claim: any) => ({
+          ...claim,
+          reward_title: claim.level_rewards?.reward_title || "Unknown Reward",
+          reward_description: claim.level_rewards?.reward_description || "",
+          reward_type: claim.level_rewards?.reward_type || "physical",
+          status: claim.status, // Map status field
+        })) || []
+
+      setClaims(transformedClaims)
+
+      // Calculate stats
+      const stats = {
+        total_claims: transformedClaims.length,
+        pending_claims: transformedClaims.filter((c: any) => c.status === "pending").length,
+        approved_claims: transformedClaims.filter((c: any) => c.status === "approved").length,
+        denied_claims: transformedClaims.filter((c: any) => c.status === "denied").length,
+        delivered_claims: transformedClaims.filter((c: any) => c.status === "delivered").length,
+      }
+      setStats(stats)
+    } catch (error) {
+      console.error("Error fetching reward claims:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load reward claims. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateClaimStatus = async (
+    claimId: string,
+    newStatus: "approved" | "denied" | "delivered",
+    adminNotes?: string,
+  ) => {
+    try {
+      setUpdating(claimId)
+
+      const response = await fetch("/api/admin/rewards", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          rewardClaimId: claimId,
+          status: newStatus,
+          adminNotes,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to update claim status")
+      }
+
+      toast({
+        title: "Status Updated",
+        description: result.message,
+      })
+
+      // Refresh claims
+      fetchRewardClaims()
+    } catch (error: any) {
+      console.error("Error updating claim status:", error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update claim status. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "pending":
+        return <Clock className="h-4 w-4 text-yellow-600" />
+      case "approved":
+        return <CheckCircle className="h-4 w-4 text-green-600" />
+      case "denied":
+        return <XCircle className="h-4 w-4 text-red-600" />
+      case "delivered":
+        return <Gift className="h-4 w-4 text-blue-600" />
+      default:
+        return <Clock className="h-4 w-4 text-gray-600" />
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "pending":
+        return "bg-yellow-100 text-yellow-800"
+      case "approved":
+        return "bg-green-100 text-green-800"
+      case "denied":
+        return "bg-red-100 text-red-800"
+      case "delivered":
+        return "bg-blue-100 text-blue-800"
+      default:
+        return "bg-gray-100 text-gray-800"
+    }
+  }
+
+  const filteredClaims = claims.filter((claim) => {
+    if (selectedStatus === "all") return true
+    return claim.status === selectedStatus || (selectedStatus === "rejected" && claim.status === "denied")
+  })
+
+  if (loading) {
+    return (
+      <div className="p-8">
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+          <div className="grid gap-6 md:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-24 bg-gray-200 rounded-lg"></div>
+            ))}
+          </div>
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-32 bg-gray-200 rounded-lg"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-8 space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Reward Management</h1>
+        <p className="text-gray-600 mt-2">Manage user reward claims and track delivery status.</p>
+      </div>
+
+      {/* Stats Cards */}
+      {stats && (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Claims</CardTitle>
+              <Gift className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.total_claims}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              <Clock className="h-4 w-4 text-yellow-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-yellow-600">{stats.pending_claims}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Approved</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{stats.approved_claims}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Delivered</CardTitle>
+              <Gift className="h-4 w-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">{stats.delivered_claims}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+              <XCircle className="h-4 w-4 text-red-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">{stats.denied_claims}</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Filter Tabs */}
+      <Tabs value={selectedStatus} onValueChange={setSelectedStatus}>
+        <TabsList>
+          <TabsTrigger value="all">All Claims</TabsTrigger>
+          <TabsTrigger value="pending">Pending</TabsTrigger>
+          <TabsTrigger value="approved">Approved</TabsTrigger>
+          <TabsTrigger value="delivered">Delivered</TabsTrigger>
+          <TabsTrigger value="rejected">Rejected</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={selectedStatus} className="space-y-4">
+          {filteredClaims.length === 0 ? (
+            <Card className="text-center py-12">
+              <CardContent>
+                <Gift className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Claims Found</h3>
+                <p className="text-gray-600">
+                  {selectedStatus === "all"
+                    ? "No reward claims have been submitted yet."
+                    : `No ${selectedStatus === "rejected" ? "denied" : selectedStatus} claims found.`}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {filteredClaims.map((claim) => (
+                <RewardClaimCard
+                  key={claim.id}
+                  claim={claim}
+                  onUpdateStatus={updateClaimStatus}
+                  isUpdating={updating === claim.id}
+                  getStatusIcon={getStatusIcon}
+                  getStatusColor={getStatusColor}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+
+interface RewardClaimCardProps {
+  claim: RewardClaim
+  onUpdateStatus: (claimId: string, status: "approved" | "denied" | "delivered", notes?: string) => void
+  isUpdating: boolean
+  getStatusIcon: (status: string) => React.ReactNode
+  getStatusColor: (status: string) => string
+}
+
+function RewardClaimCard({ claim, onUpdateStatus, isUpdating, getStatusIcon, getStatusColor }: RewardClaimCardProps) {
+  const [adminNotes, setAdminNotes] = useState(claim.admin_notes || "")
+
+  return (
+    <Card className="hover:shadow-md transition-shadow">
+      <CardHeader>
+        <div className="flex items-start justify-between">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-lg">{claim.reward_title}</CardTitle>
+              <Badge className={`${getStatusColor(claim.status || claim.claim_status)} flex items-center gap-1`}>
+                {getStatusIcon(claim.status || claim.claim_status)}
+                {claim.status || claim.claim_status}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-4 text-sm text-gray-600">
+              <div className="flex items-center gap-1">
+                <User className="h-4 w-4" />
+                {claim.user_name}
+              </div>
+              <div className="flex items-center gap-1">
+                <Mail className="h-4 w-4" />
+                {claim.user_email}
+              </div>
+              <div className="flex items-center gap-1">
+                <Calendar className="h-4 w-4" />
+                {new Date(claim.claimed_at).toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+          <Badge variant="outline">Level {claim.level}</Badge>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <CardDescription>{claim.reward_description}</CardDescription>
+
+        {claim.admin_notes && (
+          <div className="bg-gray-50 p-3 rounded-lg">
+            <div className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+              <MessageSquare className="h-4 w-4" />
+              Admin Notes
+            </div>
+            <p className="text-sm text-gray-600">{claim.admin_notes}</p>
+          </div>
+        )}
+
+        {(claim.status === "pending" || claim.claim_status === "pending") && (
+          <div className="space-y-3">
+            <Textarea
+              placeholder="Add admin notes (optional)"
+              value={adminNotes}
+              onChange={(e) => setAdminNotes(e.target.value)}
+              className="min-h-[80px]"
+            />
+            <div className="flex gap-2">
+              <Button
+                onClick={() => onUpdateStatus(claim.id, "approved", adminNotes)}
+                disabled={isUpdating}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {isUpdating ? "Updating..." : "Approve"}
+              </Button>
+              <Button
+                onClick={() => onUpdateStatus(claim.id, "denied", adminNotes)}
+                disabled={isUpdating}
+                variant="destructive"
+              >
+                {isUpdating ? "Updating..." : "Deny"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {(claim.status === "approved" || claim.claim_status === "approved") && (
+          <div className="space-y-3">
+            <Textarea
+              placeholder="Add delivery notes (optional)"
+              value={adminNotes}
+              onChange={(e) => setAdminNotes(e.target.value)}
+              className="min-h-[80px]"
+            />
+            <Button
+              onClick={() => onUpdateStatus(claim.id, "delivered", adminNotes)}
+              disabled={isUpdating}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {isUpdating ? "Updating..." : "Mark as Delivered"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
