@@ -6,42 +6,32 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Gift, Trophy, Clock, CheckCircle, Mail, Leaf, XCircle, Truck } from "lucide-react"
+import { Gift, Trophy, Clock, CheckCircle, Mail, Leaf } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
 interface LevelReward {
   level: number
+  reward_id: string
   reward_title: string
   reward_description: string
   reward_type: "physical" | "digital" | "experience" | "privilege"
+  already_claimed: boolean
 }
 
-interface UserReward {
-  id: string
-  level: number
-  status: "pending" | "approved" | "denied" | "delivered"
-  claimed_at: string
-  admin_notes?: string
-  level_rewards: {
-    level: number
-    reward_title: string
-    reward_description: string
-  }
-}
-
-interface RewardsData {
-  currentLevel: number
-  totalPoints: number
-  levelRewards: LevelReward[]
-  userRewards: UserReward[]
+interface UserStats {
+  total_points: number
+  current_level: number
+  next_level_points: number
+  points_to_next_level: number
 }
 
 const LEVEL_THRESHOLDS = [0, 100, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
 
 export default function RewardsPage() {
-  const [rewardsData, setRewardsData] = useState<RewardsData | null>(null)
+  const [rewards, setRewards] = useState<LevelReward[]>([])
+  const [userStats, setUserStats] = useState<UserStats | null>(null)
   const [loading, setLoading] = useState(true)
-  const [claiming, setClaiming] = useState<number | null>(null)
+  const [claiming, setClaiming] = useState<string | null>(null)
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,16 +39,52 @@ export default function RewardsPage() {
   )
 
   useEffect(() => {
-    fetchRewardsData()
+    fetchRewardsAndStats()
   }, [])
 
-  const fetchRewardsData = async () => {
+  const fetchRewardsAndStats = async () => {
     try {
-      const response = await fetch("/api/rewards")
-      if (!response.ok) throw new Error("Failed to fetch rewards")
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
 
-      const data = await response.json()
-      setRewardsData(data)
+      // Get user's available rewards
+      const { data: rewardsData, error: rewardsError } = await supabase.rpc("get_user_available_rewards", {
+        user_uuid: user.id,
+      })
+
+      if (rewardsError) throw rewardsError
+
+      // Get user's total points
+      const { data: pointsData, error: pointsError } = await supabase
+        .from("point_transactions")
+        .select("points")
+        .eq("user_id", user.id)
+
+      if (pointsError) throw pointsError
+
+      const totalPoints = pointsData?.reduce((sum, transaction) => sum + transaction.points, 0) || 0
+
+      // Calculate current level and progress
+      let currentLevel = 0
+      for (let i = LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
+        if (totalPoints >= LEVEL_THRESHOLDS[i]) {
+          currentLevel = i
+          break
+        }
+      }
+
+      const nextLevelPoints = LEVEL_THRESHOLDS[currentLevel + 1] || LEVEL_THRESHOLDS[LEVEL_THRESHOLDS.length - 1]
+      const pointsToNextLevel = Math.max(0, nextLevelPoints - totalPoints)
+
+      setRewards(rewardsData || [])
+      setUserStats({
+        total_points: totalPoints,
+        current_level: currentLevel,
+        next_level_points: nextLevelPoints,
+        points_to_next_level: pointsToNextLevel,
+      })
     } catch (error) {
       console.error("Error fetching rewards:", error)
       toast({
@@ -71,36 +97,49 @@ export default function RewardsPage() {
     }
   }
 
-  const claimReward = async (level: number) => {
+  const claimReward = async (rewardId: string, level: number, rewardTitle: string) => {
     try {
-      setClaiming(level)
+      setClaiming(rewardId)
 
-      const response = await fetch("/api/rewards", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ level }),
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Get user profile for email and name
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("email, first_name, last_name")
+        .eq("user_id", user.id)
+        .single()
+
+      const userEmail = profile?.email || user.email || ""
+      const userName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "User"
+
+      // Create reward claim
+      const { error } = await supabase.from("user_level_rewards").insert({
+        user_id: user.id,
+        level: level,
+        level_reward_id: rewardId,
+        user_email: userEmail,
+        user_name: userName,
+        claim_status: "pending",
       })
 
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to claim reward")
-      }
+      if (error) throw error
 
       toast({
         title: "Reward Claimed!",
-        description: result.message,
+        description: `Your claim for "${rewardTitle}" has been submitted. You'll receive an email from our admin team within 24-48 hours.`,
       })
 
-      // Refresh rewards data
-      fetchRewardsData()
-    } catch (error: any) {
+      // Refresh rewards to show updated claim status
+      fetchRewardsAndStats()
+    } catch (error) {
       console.error("Error claiming reward:", error)
       toast({
         title: "Error",
-        description: error.message || "Failed to claim reward. Please try again.",
+        description: "Failed to claim reward. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -138,36 +177,6 @@ export default function RewardsPage() {
     }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Clock className="h-4 w-4 text-yellow-600" />
-      case "approved":
-        return <CheckCircle className="h-4 w-4 text-green-600" />
-      case "denied":
-        return <XCircle className="h-4 w-4 text-red-600" />
-      case "delivered":
-        return <Truck className="h-4 w-4 text-blue-600" />
-      default:
-        return <Clock className="h-4 w-4 text-gray-600" />
-    }
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "pending":
-        return "bg-yellow-100 text-yellow-800"
-      case "approved":
-        return "bg-green-100 text-green-800"
-      case "denied":
-        return "bg-red-100 text-red-800"
-      case "delivered":
-        return "bg-blue-100 text-blue-800"
-      default:
-        return "bg-gray-100 text-gray-800"
-    }
-  }
-
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -183,25 +192,8 @@ export default function RewardsPage() {
     )
   }
 
-  if (!rewardsData) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Unable to load rewards</h1>
-          <Button onClick={fetchRewardsData}>Try Again</Button>
-        </div>
-      </div>
-    )
-  }
-
-  const claimedLevels = new Set(rewardsData.userRewards.map((r) => r.level))
-  const availableRewards = rewardsData.levelRewards.filter(
-    (reward) => reward.level <= rewardsData.currentLevel && !claimedLevels.has(reward.level),
-  )
-  const upcomingRewards = rewardsData.levelRewards.filter((reward) => reward.level > rewardsData.currentLevel)
-
-  const nextLevelPoints = LEVEL_THRESHOLDS[rewardsData.currentLevel] || LEVEL_THRESHOLDS[LEVEL_THRESHOLDS.length - 1]
-  const pointsToNextLevel = Math.max(0, nextLevelPoints - rewardsData.totalPoints)
+  const availableRewards = rewards.filter((r) => !r.already_claimed)
+  const claimedRewards = rewards.filter((r) => r.already_claimed)
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
@@ -214,49 +206,51 @@ export default function RewardsPage() {
       </div>
 
       {/* Progress Card */}
-      <Card className="bg-gradient-to-r from-cyan-50 to-blue-50 border-cyan-200">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-cyan-800">
-            <Trophy className="h-5 w-5" />
-            Your Progress
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-cyan-900">{rewardsData.totalPoints} Points</p>
-              <p className="text-cyan-700">Level {rewardsData.currentLevel}</p>
+      {userStats && (
+        <Card className="bg-gradient-to-r from-cyan-50 to-blue-50 border-cyan-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-cyan-800">
+              <Trophy className="h-5 w-5" />
+              Your Progress
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-bold text-cyan-900">{userStats.total_points} Points</p>
+                <p className="text-cyan-700">Level {userStats.current_level}</p>
+              </div>
+              {userStats.current_level < 10 && (
+                <div className="text-right">
+                  <p className="text-sm text-cyan-600">Next Level</p>
+                  <p className="font-semibold text-cyan-800">{userStats.points_to_next_level} points to go</p>
+                </div>
+              )}
             </div>
-            {rewardsData.currentLevel < 10 && (
-              <div className="text-right">
-                <p className="text-sm text-cyan-600">Next Level</p>
-                <p className="font-semibold text-cyan-800">{pointsToNextLevel} points to go</p>
+
+            {userStats.current_level < 10 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-cyan-600">
+                  <span>Level {userStats.current_level}</span>
+                  <span>Level {userStats.current_level + 1}</span>
+                </div>
+                <div className="w-full bg-cyan-200 rounded-full h-2">
+                  <div
+                    className="bg-cyan-600 h-2 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${
+                        ((userStats.total_points - LEVEL_THRESHOLDS[userStats.current_level]) /
+                          (userStats.next_level_points - LEVEL_THRESHOLDS[userStats.current_level])) *
+                        100
+                      }%`,
+                    }}
+                  ></div>
+                </div>
               </div>
             )}
-          </div>
-
-          {rewardsData.currentLevel < 10 && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-cyan-600">
-                <span>Level {rewardsData.currentLevel}</span>
-                <span>Level {rewardsData.currentLevel + 1}</span>
-              </div>
-              <div className="w-full bg-cyan-200 rounded-full h-2">
-                <div
-                  className="bg-cyan-600 h-2 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${
-                      ((rewardsData.totalPoints - LEVEL_THRESHOLDS[rewardsData.currentLevel - 1]) /
-                        (nextLevelPoints - LEVEL_THRESHOLDS[rewardsData.currentLevel - 1])) *
-                      100
-                    }%`,
-                  }}
-                ></div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Available Rewards */}
       {availableRewards.length > 0 && (
@@ -264,7 +258,7 @@ export default function RewardsPage() {
           <h2 className="text-2xl font-semibold text-gray-900">Available Rewards</h2>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {availableRewards.map((reward) => (
-              <Card key={reward.level} className="hover:shadow-lg transition-shadow">
+              <Card key={reward.reward_id} className="hover:shadow-lg transition-shadow">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
@@ -302,11 +296,11 @@ export default function RewardsPage() {
                   </div>
 
                   <Button
-                    onClick={() => claimReward(reward.level)}
-                    disabled={claiming === reward.level}
+                    onClick={() => claimReward(reward.reward_id, reward.level, reward.reward_title)}
+                    disabled={claiming === reward.reward_id}
                     className="w-full bg-cyan-600 hover:bg-cyan-700"
                   >
-                    {claiming === reward.level ? (
+                    {claiming === reward.reward_id ? (
                       <div className="flex items-center gap-2">
                         <Clock className="h-4 w-4 animate-spin" />
                         Claiming...
@@ -325,92 +319,13 @@ export default function RewardsPage() {
         </div>
       )}
 
-      {rewardsData.userRewards.length > 0 && (
+      {/* Claimed Rewards */}
+      {claimedRewards.length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-2xl font-semibold text-gray-900">My Reward Claims</h2>
+          <h2 className="text-2xl font-semibold text-gray-900">Claimed Rewards</h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {rewardsData.userRewards.map((userReward) => (
-              <Card key={userReward.id} className="hover:shadow-md transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <CardTitle className="text-lg">{userReward.level_rewards.reward_title}</CardTitle>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
-                          Level {userReward.level}
-                        </Badge>
-                        <Badge className={`text-xs ${getStatusColor(userReward.status)} flex items-center gap-1`}>
-                          {getStatusIcon(userReward.status)}
-                          {userReward.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <CardDescription className="text-sm">{userReward.level_rewards.reward_description}</CardDescription>
-
-                  <div className="text-xs text-gray-500">
-                    Claimed: {new Date(userReward.claimed_at).toLocaleDateString()}
-                  </div>
-
-                  {userReward.admin_notes && (
-                    <div className="bg-gray-50 p-3 rounded-lg border">
-                      <div className="text-xs font-medium text-gray-700 mb-1">Admin Notes:</div>
-                      <div className="text-sm text-gray-600">{userReward.admin_notes}</div>
-                    </div>
-                  )}
-
-                  {userReward.status === "pending" && (
-                    <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                      <div className="flex items-center gap-2 text-sm text-yellow-800">
-                        <Clock className="h-4 w-4" />
-                        <span>Waiting for admin approval (24-48 hours)</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {userReward.status === "approved" && (
-                    <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                      <div className="flex items-center gap-2 text-sm text-green-800">
-                        <CheckCircle className="h-4 w-4" />
-                        <span>Approved! Check your email for next steps.</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {userReward.status === "delivered" && (
-                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                      <div className="flex items-center gap-2 text-sm text-blue-800">
-                        <Truck className="h-4 w-4" />
-                        <span>Delivered! Enjoy your reward.</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {userReward.status === "denied" && (
-                    <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                      <div className="flex items-center gap-2 text-sm text-red-800">
-                        <XCircle className="h-4 w-4" />
-                        <span>Request denied. See admin notes above.</span>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Upcoming Rewards */}
-      {upcomingRewards.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-2xl font-semibold text-gray-900">Upcoming Rewards</h2>
-          <p className="text-gray-600">Keep earning points to unlock these rewards!</p>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {upcomingRewards.slice(0, 6).map((reward) => (
-              <Card key={reward.level} className="opacity-75 border-dashed">
+            {claimedRewards.map((reward) => (
+              <Card key={reward.reward_id} className="opacity-75">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
@@ -419,11 +334,9 @@ export default function RewardsPage() {
                         <Badge variant="outline" className="text-xs">
                           Level {reward.level}
                         </Badge>
-                        <Badge className={`text-xs ${getRewardTypeColor(reward.reward_type)}`}>
-                          <span className="flex items-center gap-1">
-                            {getRewardTypeIcon(reward.reward_type)}
-                            {reward.reward_type}
-                          </span>
+                        <Badge className="text-xs bg-green-100 text-green-800">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Claimed
                         </Badge>
                       </div>
                     </div>
@@ -431,9 +344,6 @@ export default function RewardsPage() {
                 </CardHeader>
                 <CardContent>
                   <CardDescription className="text-sm text-gray-500">{reward.reward_description}</CardDescription>
-                  <div className="mt-3 text-xs text-gray-500">
-                    {LEVEL_THRESHOLDS[reward.level - 1] - rewardsData.totalPoints} more points needed
-                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -442,7 +352,7 @@ export default function RewardsPage() {
       )}
 
       {/* No Rewards Available */}
-      {availableRewards.length === 0 && rewardsData.userRewards.length === 0 && (
+      {availableRewards.length === 0 && claimedRewards.length === 0 && (
         <Card className="text-center py-12">
           <CardContent>
             <Gift className="h-12 w-12 text-gray-400 mx-auto mb-4" />

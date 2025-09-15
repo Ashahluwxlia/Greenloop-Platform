@@ -17,7 +17,7 @@ interface RewardClaim {
   user_id: string
   level: number
   level_reward_id: string
-  status: "pending" | "approved" | "denied" | "delivered"
+  claim_status: "pending" | "approved" | "rejected" | "delivered"
   claimed_at: string
   approved_at?: string
   approved_by?: string
@@ -33,7 +33,7 @@ interface RewardStats {
   total_claims: number
   pending_claims: number
   approved_claims: number
-  denied_claims: number
+  rejected_claims: number
   delivered_claims: number
 }
 
@@ -55,17 +55,28 @@ export default function AdminRewardsPage() {
 
   const fetchRewardClaims = async () => {
     try {
-      const response = await fetch("/api/admin/rewards")
-      if (!response.ok) throw new Error("Failed to fetch reward claims")
+      // Get reward claims with reward details
+      const { data: claimsData, error: claimsError } = await supabase
+        .from("user_level_rewards")
+        .select(`
+          *,
+          level_rewards (
+            reward_title,
+            reward_description,
+            reward_type
+          )
+        `)
+        .order("claimed_at", { ascending: false })
 
-      const data = await response.json()
+      if (claimsError) throw claimsError
+
+      // Transform data to flatten the structure
       const transformedClaims =
-        data.rewardClaims?.map((claim: any) => ({
+        claimsData?.map((claim: any) => ({
           ...claim,
           reward_title: claim.level_rewards?.reward_title || "Unknown Reward",
           reward_description: claim.level_rewards?.reward_description || "",
           reward_type: claim.level_rewards?.reward_type || "physical",
-          status: claim.status, // Map status field
         })) || []
 
       setClaims(transformedClaims)
@@ -73,10 +84,10 @@ export default function AdminRewardsPage() {
       // Calculate stats
       const stats = {
         total_claims: transformedClaims.length,
-        pending_claims: transformedClaims.filter((c: any) => c.status === "pending").length,
-        approved_claims: transformedClaims.filter((c: any) => c.status === "approved").length,
-        denied_claims: transformedClaims.filter((c: any) => c.status === "denied").length,
-        delivered_claims: transformedClaims.filter((c: any) => c.status === "delivered").length,
+        pending_claims: transformedClaims.filter((c: any) => c.claim_status === "pending").length,
+        approved_claims: transformedClaims.filter((c: any) => c.claim_status === "approved").length,
+        rejected_claims: transformedClaims.filter((c: any) => c.claim_status === "rejected").length,
+        delivered_claims: transformedClaims.filter((c: any) => c.claim_status === "delivered").length,
       }
       setStats(stats)
     } catch (error) {
@@ -93,42 +104,44 @@ export default function AdminRewardsPage() {
 
   const updateClaimStatus = async (
     claimId: string,
-    newStatus: "approved" | "denied" | "delivered",
+    newStatus: "approved" | "rejected" | "delivered",
     adminNotes?: string,
   ) => {
     try {
       setUpdating(claimId)
 
-      const response = await fetch("/api/admin/rewards", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          rewardClaimId: claimId,
-          status: newStatus,
-          adminNotes,
-        }),
-      })
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
 
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to update claim status")
+      const updateData: any = {
+        claim_status: newStatus,
+        admin_notes: adminNotes || null,
+        updated_at: new Date().toISOString(),
       }
+
+      if (newStatus === "approved" || newStatus === "rejected") {
+        updateData.approved_at = new Date().toISOString()
+        updateData.approved_by = user.id
+      }
+
+      const { error } = await supabase.from("user_level_rewards").update(updateData).eq("id", claimId)
+
+      if (error) throw error
 
       toast({
         title: "Status Updated",
-        description: result.message,
+        description: `Reward claim has been ${newStatus}.`,
       })
 
       // Refresh claims
       fetchRewardClaims()
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error updating claim status:", error)
       toast({
         title: "Error",
-        description: error.message || "Failed to update claim status. Please try again.",
+        description: "Failed to update claim status. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -142,7 +155,7 @@ export default function AdminRewardsPage() {
         return <Clock className="h-4 w-4 text-yellow-600" />
       case "approved":
         return <CheckCircle className="h-4 w-4 text-green-600" />
-      case "denied":
+      case "rejected":
         return <XCircle className="h-4 w-4 text-red-600" />
       case "delivered":
         return <Gift className="h-4 w-4 text-blue-600" />
@@ -157,7 +170,7 @@ export default function AdminRewardsPage() {
         return "bg-yellow-100 text-yellow-800"
       case "approved":
         return "bg-green-100 text-green-800"
-      case "denied":
+      case "rejected":
         return "bg-red-100 text-red-800"
       case "delivered":
         return "bg-blue-100 text-blue-800"
@@ -168,7 +181,7 @@ export default function AdminRewardsPage() {
 
   const filteredClaims = claims.filter((claim) => {
     if (selectedStatus === "all") return true
-    return claim.status === selectedStatus || (selectedStatus === "rejected" && claim.status === "denied")
+    return claim.claim_status === selectedStatus
   })
 
   if (loading) {
@@ -248,7 +261,7 @@ export default function AdminRewardsPage() {
               <XCircle className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{stats.denied_claims}</div>
+              <div className="text-2xl font-bold text-red-600">{stats.rejected_claims}</div>
             </CardContent>
           </Card>
         </div>
@@ -273,7 +286,7 @@ export default function AdminRewardsPage() {
                 <p className="text-gray-600">
                   {selectedStatus === "all"
                     ? "No reward claims have been submitted yet."
-                    : `No ${selectedStatus === "rejected" ? "denied" : selectedStatus} claims found.`}
+                    : `No ${selectedStatus} claims found.`}
                 </p>
               </CardContent>
             </Card>
@@ -299,7 +312,7 @@ export default function AdminRewardsPage() {
 
 interface RewardClaimCardProps {
   claim: RewardClaim
-  onUpdateStatus: (claimId: string, status: "approved" | "denied" | "delivered", notes?: string) => void
+  onUpdateStatus: (claimId: string, status: "approved" | "rejected" | "delivered", notes?: string) => void
   isUpdating: boolean
   getStatusIcon: (status: string) => React.ReactNode
   getStatusColor: (status: string) => string
@@ -307,6 +320,7 @@ interface RewardClaimCardProps {
 
 function RewardClaimCard({ claim, onUpdateStatus, isUpdating, getStatusIcon, getStatusColor }: RewardClaimCardProps) {
   const [adminNotes, setAdminNotes] = useState(claim.admin_notes || "")
+  const [showActions, setShowActions] = useState(false)
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -315,9 +329,9 @@ function RewardClaimCard({ claim, onUpdateStatus, isUpdating, getStatusIcon, get
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <CardTitle className="text-lg">{claim.reward_title}</CardTitle>
-              <Badge className={`${getStatusColor(claim.status || claim.claim_status)} flex items-center gap-1`}>
-                {getStatusIcon(claim.status || claim.claim_status)}
-                {claim.status || claim.claim_status}
+              <Badge className={`${getStatusColor(claim.claim_status)} flex items-center gap-1`}>
+                {getStatusIcon(claim.claim_status)}
+                {claim.claim_status}
               </Badge>
             </div>
             <div className="flex items-center gap-4 text-sm text-gray-600">
@@ -352,7 +366,7 @@ function RewardClaimCard({ claim, onUpdateStatus, isUpdating, getStatusIcon, get
           </div>
         )}
 
-        {(claim.status === "pending" || claim.claim_status === "pending") && (
+        {claim.claim_status === "pending" && (
           <div className="space-y-3">
             <Textarea
               placeholder="Add admin notes (optional)"
@@ -369,17 +383,17 @@ function RewardClaimCard({ claim, onUpdateStatus, isUpdating, getStatusIcon, get
                 {isUpdating ? "Updating..." : "Approve"}
               </Button>
               <Button
-                onClick={() => onUpdateStatus(claim.id, "denied", adminNotes)}
+                onClick={() => onUpdateStatus(claim.id, "rejected", adminNotes)}
                 disabled={isUpdating}
                 variant="destructive"
               >
-                {isUpdating ? "Updating..." : "Deny"}
+                {isUpdating ? "Updating..." : "Reject"}
               </Button>
             </div>
           </div>
         )}
 
-        {(claim.status === "approved" || claim.claim_status === "approved") && (
+        {claim.claim_status === "approved" && (
           <div className="space-y-3">
             <Textarea
               placeholder="Add delivery notes (optional)"
