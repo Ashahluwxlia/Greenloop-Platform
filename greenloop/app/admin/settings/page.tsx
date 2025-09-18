@@ -153,22 +153,63 @@ export default function AdminSettingsPage() {
     }
   }
 
+  const validateLevelThresholds = (thresholds: LevelThreshold[]): string | null => {
+    const sortedThresholds = [...thresholds].sort((a, b) => a.level - b.level)
+
+    for (let i = 1; i < sortedThresholds.length; i++) {
+      const current = sortedThresholds[i]
+      const previous = sortedThresholds[i - 1]
+
+      if (current.points_required <= previous.points_required) {
+        return `Level ${current.level} (${current.points_required} points) must have more points than Level ${previous.level} (${previous.points_required} points)`
+      }
+    }
+
+    return null
+  }
+
   const handleSaveLevelThresholds = async () => {
+    const validationError = validateLevelThresholds(levelThresholds)
+    if (validationError) {
+      toast({
+        title: "Validation Error",
+        description: validationError,
+        variant: "destructive",
+      })
+      return
+    }
+
     setSavingThresholds(true)
     try {
       const { data: authData } = await supabase.auth.getUser()
       if (!authData?.user) throw new Error("Not authenticated")
 
       for (const threshold of levelThresholds) {
-        const { error } = await supabase.rpc("update_level_threshold", {
+        const { data, error } = await supabase.rpc("update_level_threshold", {
           threshold_level: threshold.level,
           new_points_required: threshold.points_required,
           admin_user_id: authData.user.id,
         })
 
+        console.log(`[v0] Update response for level ${threshold.level}:`, { data, error })
+
         if (error) {
           throw new Error(`Failed to update level ${threshold.level}: ${error.message}`)
         }
+
+        // Check if the function returned an error in the response
+        if (data && typeof data === "object" && "success" in data && !data.success) {
+          throw new Error(`Failed to update level ${threshold.level}: ${data.error || "Unknown error"}`)
+        }
+      }
+
+      const { data: updatedThresholds, error: reloadError } = await supabase
+        .from("level_thresholds")
+        .select("level, points_required")
+        .order("level", { ascending: true })
+
+      if (!reloadError && updatedThresholds) {
+        setLevelThresholds(updatedThresholds)
       }
 
       toast({
@@ -196,6 +237,8 @@ export default function AdminSettingsPage() {
       prev.map((threshold) => (threshold.level === level ? { ...threshold, points_required: points } : threshold)),
     )
   }
+
+  const thresholdValidationError = validateLevelThresholds(levelThresholds)
 
   if (loading) {
     return (
@@ -304,25 +347,40 @@ export default function AdminSettingsPage() {
               </CardHeader>
               <CardContent className="p-8">
                 <div className="space-y-6">
+                  {thresholdValidationError && (
+                    <div className="p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
+                      <p className="text-red-700 dark:text-red-300 font-medium">⚠️ {thresholdValidationError}</p>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                    {levelThresholds.map((threshold) => (
-                      <div key={threshold.level} className="space-y-2">
-                        <Label className="text-sm font-medium text-foreground">Level {threshold.level}</Label>
-                        <Input
-                          type="number"
-                          value={threshold.points_required}
-                          onChange={(e) => updateLevelThreshold(threshold.level, Number.parseInt(e.target.value) || 0)}
-                          className="h-12 text-base border-2 focus:border-primary transition-colors"
-                          placeholder="0"
-                          min="0"
-                        />
-                      </div>
-                    ))}
+                    {levelThresholds.map((threshold) => {
+                      const isInvalid =
+                        thresholdValidationError && thresholdValidationError.includes(`Level ${threshold.level}`)
+
+                      return (
+                        <div key={threshold.level} className="space-y-2">
+                          <Label className="text-sm font-medium text-foreground">Level {threshold.level}</Label>
+                          <Input
+                            type="number"
+                            value={threshold.points_required}
+                            onChange={(e) =>
+                              updateLevelThreshold(threshold.level, Number.parseInt(e.target.value) || 0)
+                            }
+                            className={`h-12 text-base border-2 transition-colors ${
+                              isInvalid ? "border-red-500 focus:border-red-600" : "focus:border-primary"
+                            }`}
+                            placeholder="0"
+                            min="0"
+                          />
+                        </div>
+                      )
+                    })}
                   </div>
                   <div className="flex justify-end">
                     <Button
                       onClick={handleSaveLevelThresholds}
-                      disabled={savingThresholds}
+                      disabled={savingThresholds || !!thresholdValidationError}
                       size="lg"
                       className="px-6 py-2"
                     >

@@ -1,5 +1,5 @@
 
-\restrict Shm3hNHn4tLHgY66dV2j8vyn4k3tx43WB1eJDfdaTMaaa79GIdU3UWT5cBGPbMU
+\restrict qJ3nYzfUosi5Ard91DooVLzaW6skURB4fLXMywAjMYQPbH7WtKLOf5XnT9JnF3G
 
 
 SET statement_timeout = 0;
@@ -1065,6 +1065,25 @@ $$;
 ALTER FUNCTION "public"."recalculate_all_challenge_progress"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."recalculate_all_user_levels"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  -- Update all users' levels based on their current points and the level thresholds
+  UPDATE users 
+  SET level = calculate_user_level(points),
+      updated_at = now()
+  WHERE points IS NOT NULL;
+  
+  -- Log the recalculation
+  RAISE NOTICE 'Recalculated levels for all users based on current thresholds';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."recalculate_all_user_levels"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql"
     AS $$
@@ -1435,11 +1454,13 @@ CREATE OR REPLACE FUNCTION "public"."update_level_threshold"("threshold_level" i
     AS $$
 DECLARE
   result json;
+  prev_threshold integer;
+  next_threshold integer;
 BEGIN
-  -- Check if user is admin
+  -- Check if user is admin using users.is_admin
   IF NOT EXISTS (
-    SELECT 1 FROM user_profiles 
-    WHERE id = admin_user_id AND role = 'admin'
+    SELECT 1 FROM users 
+    WHERE id = admin_user_id AND is_admin = true
   ) THEN
     RETURN json_build_object('success', false, 'error', 'Unauthorized: Admin access required');
   END IF;
@@ -1453,7 +1474,37 @@ BEGIN
     RETURN json_build_object('success', false, 'error', 'Invalid points: must be between 0 and 1,000,000');
   END IF;
 
-  -- Update the specific level threshold with proper WHERE clause
+  -- Validate ascending order: check previous level threshold
+  IF threshold_level > 1 THEN
+    SELECT points_required INTO prev_threshold 
+    FROM level_thresholds 
+    WHERE level = threshold_level - 1;
+    
+    IF prev_threshold IS NOT NULL AND new_points_required <= prev_threshold THEN
+      RETURN json_build_object(
+        'success', false, 
+        'error', format('Level %s threshold (%s points) must be greater than Level %s (%s points)', 
+                       threshold_level, new_points_required, threshold_level - 1, prev_threshold)
+      );
+    END IF;
+  END IF;
+
+  -- Validate ascending order: check next level threshold
+  IF threshold_level < 10 THEN
+    SELECT points_required INTO next_threshold 
+    FROM level_thresholds 
+    WHERE level = threshold_level + 1;
+    
+    IF next_threshold IS NOT NULL AND new_points_required >= next_threshold THEN
+      RETURN json_build_object(
+        'success', false, 
+        'error', format('Level %s threshold (%s points) must be less than Level %s (%s points)', 
+                       threshold_level, new_points_required, threshold_level + 1, next_threshold)
+      );
+    END IF;
+  END IF;
+
+  -- Update the specific level threshold
   UPDATE level_thresholds 
   SET points_required = new_points_required,
       updated_at = now()
@@ -1604,6 +1655,45 @@ $$;
 
 
 ALTER FUNCTION "public"."update_user_points"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."validate_level_thresholds_order"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+  prev_threshold integer;
+  next_threshold integer;
+BEGIN
+  -- Check previous level
+  IF NEW.level > 1 THEN
+    SELECT points_required INTO prev_threshold 
+    FROM level_thresholds 
+    WHERE level = NEW.level - 1;
+    
+    IF prev_threshold IS NOT NULL AND NEW.points_required <= prev_threshold THEN
+      RAISE EXCEPTION 'Level % threshold (% points) must be greater than Level % (% points)', 
+                     NEW.level, NEW.points_required, NEW.level - 1, prev_threshold;
+    END IF;
+  END IF;
+
+  -- Check next level
+  IF NEW.level < 10 THEN
+    SELECT points_required INTO next_threshold 
+    FROM level_thresholds 
+    WHERE level = NEW.level + 1;
+    
+    IF next_threshold IS NOT NULL AND NEW.points_required >= next_threshold THEN
+      RAISE EXCEPTION 'Level % threshold (% points) must be less than Level % (% points)', 
+                     NEW.level, NEW.points_required, NEW.level + 1, next_threshold;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."validate_level_thresholds_order"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."validate_personal_challenge"() RETURNS "trigger"
@@ -3169,6 +3259,10 @@ CREATE OR REPLACE TRIGGER "update_challenge_progress_trigger" AFTER INSERT OR UP
 
 
 
+CREATE OR REPLACE TRIGGER "validate_level_thresholds_trigger" BEFORE INSERT OR UPDATE ON "public"."level_thresholds" FOR EACH ROW EXECUTE FUNCTION "public"."validate_level_thresholds_order"();
+
+
+
 CREATE OR REPLACE TRIGGER "validate_personal_challenge_trigger" BEFORE INSERT OR UPDATE ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."validate_personal_challenge"();
 
 
@@ -4296,6 +4390,12 @@ GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "servic
 
 
 
+GRANT ALL ON FUNCTION "public"."recalculate_all_user_levels"() TO "anon";
+GRANT ALL ON FUNCTION "public"."recalculate_all_user_levels"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."recalculate_all_user_levels"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "service_role";
@@ -4353,6 +4453,12 @@ GRANT ALL ON FUNCTION "public"."update_user_level"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."validate_level_thresholds_order"() TO "anon";
+GRANT ALL ON FUNCTION "public"."validate_level_thresholds_order"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."validate_level_thresholds_order"() TO "service_role";
 
 
 
@@ -4677,6 +4783,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict Shm3hNHn4tLHgY66dV2j8vyn4k3tx43WB1eJDfdaTMaaa79GIdU3UWT5cBGPbMU
+\unrestrict qJ3nYzfUosi5Ard91DooVLzaW6skURB4fLXMywAjMYQPbH7WtKLOf5XnT9JnF3G
 
 RESET ALL;
