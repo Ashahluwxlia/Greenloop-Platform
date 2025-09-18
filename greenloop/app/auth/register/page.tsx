@@ -12,7 +12,8 @@ import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
-import { Leaf, Mail, Lock, User, Building2, Award as IdCard, Briefcase, AlertCircle } from "lucide-react"
+import { Leaf, Mail, Lock, User, Building2, Award as IdCard, Briefcase, AlertCircle, Eye, EyeOff } from "lucide-react"
+import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter"
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -27,6 +28,8 @@ export default function RegisterPage() {
   })
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null)
   const [settingsLoading, setSettingsLoading] = useState(true)
   const router = useRouter()
@@ -394,14 +397,22 @@ export default function RegisterPage() {
                     <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="password"
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       placeholder="Create a strong password"
                       value={formData.password}
                       onChange={(e) => handleInputChange("password", e.target.value)}
-                      className="pl-10 h-11 bg-input border-border focus:ring-2 focus:ring-ring"
+                      className="pl-10 pr-10 h-11 bg-input border-border focus:ring-2 focus:ring-ring"
                       required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
+                  {formData.password && <PasswordStrengthMeter password={formData.password} className="mt-2" />}
                 </div>
 
                 <div className="space-y-2">
@@ -412,13 +423,20 @@ export default function RegisterPage() {
                     <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="confirmPassword"
-                      type="password"
+                      type={showConfirmPassword ? "text" : "password"}
                       placeholder="Confirm your password"
                       value={formData.confirmPassword}
                       onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
-                      className="pl-10 h-11 bg-input border-border focus:ring-2 focus:ring-ring"
+                      className="pl-10 pr-10 h-11 bg-input border-border focus:ring-2 focus:ring-ring"
                       required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
                 </div>
 

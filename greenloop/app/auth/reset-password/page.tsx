@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Leaf, Eye, EyeOff, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
+import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter"
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("")
@@ -162,6 +163,7 @@ export default function ResetPasswordPage() {
                   )}
                 </Button>
               </div>
+              {password && <PasswordStrengthMeter password={password} className="mt-2" />}
             </div>
 
             <div className="space-y-2">
@@ -206,15 +208,6 @@ export default function ResetPasswordPage() {
                 <AlertDescription>{message}</AlertDescription>
               </Alert>
             )}
-
-            <div className="text-xs text-muted-foreground space-y-1">
-              <p>Password requirements:</p>
-              <ul className="list-disc list-inside space-y-1 ml-2">
-                <li>At least 8 characters long</li>
-                <li>Contains uppercase and lowercase letters</li>
-                <li>Contains at least one number</li>
-              </ul>
-            </div>
 
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Updating Password..." : "Update Password"}

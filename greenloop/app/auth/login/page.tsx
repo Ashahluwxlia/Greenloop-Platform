@@ -11,11 +11,12 @@ import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState, useEffect } from "react"
-import { Leaf, Mail, Lock, Building2 } from "lucide-react"
+import { Leaf, Mail, Lock, Building2, Eye, EyeOff } from "lucide-react"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [registrationEnabled, setRegistrationEnabled] = useState<boolean>(true)
@@ -119,7 +120,7 @@ export default function LoginPage() {
                 className="w-full h-11 border-border hover:bg-accent/10 bg-transparent"
                 disabled={isLoading}
               >
-                <Building2 className="mr-2 h-4 w-4" />
+                <Building2 className="mr-2 h-4 w-4 text-muted-foreground" />
                 {"Continue with Microsoft 365"}
               </Button>
 
@@ -160,13 +161,20 @@ export default function LoginPage() {
                     <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="password"
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       placeholder="Enter your password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="pl-10 h-11 bg-input border-border focus:ring-2 focus:ring-ring"
+                      className="pl-10 pr-10 h-11 bg-input border-border focus:ring-2 focus:ring-ring"
                       required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
                 </div>
 
