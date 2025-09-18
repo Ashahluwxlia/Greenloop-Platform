@@ -23,6 +23,7 @@ export default function ChallengesPage() {
   const [participationMap, setParticipationMap] = useState<Map<string, any>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("active")
+  const [challengeCreationEnabled, setChallengeCreationEnabled] = useState(true)
 
   const router = useRouter()
   const supabase = createClient()
@@ -113,6 +114,15 @@ export default function ChallengesPage() {
         // Get user profile
         const { data: profile } = await supabase.from("users").select("*").eq("id", userData.user.id).single()
         setUserProfile(profile)
+
+        const { data: challengeCreationSetting } = await supabase
+          .from("system_settings")
+          .select("setting_value")
+          .eq("key", "challenge_creation_enabled")
+          .single()
+
+        const creationEnabled = challengeCreationSetting?.setting_value === "true"
+        setChallengeCreationEnabled(creationEnabled)
 
         const { data: challengesData } = await supabase
           .from("challenges")
@@ -335,12 +345,14 @@ export default function ChallengesPage() {
                 Take on sustainability challenges, compete with colleagues, and make a measurable environmental impact.
               </p>
             </div>
-            <Button asChild>
-              <Link href="/challenges/create">
-                <Plus className="h-4 w-4 mr-2" />
-                Create Challenge
-              </Link>
-            </Button>
+            {(challengeCreationEnabled || userProfile?.is_admin) && (
+              <Button asChild>
+                <Link href="/challenges/create">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Challenge
+                </Link>
+              </Button>
+            )}
           </div>
 
           {/* Challenge Tabs */}
@@ -692,9 +704,11 @@ export default function ChallengesPage() {
                     <p className="text-muted-foreground mb-4">
                       There are no active challenges at the moment. Check back later or create your own!
                     </p>
-                    <Button asChild>
-                      <Link href="/challenges/create">Create Challenge</Link>
-                    </Button>
+                    {(challengeCreationEnabled || userProfile?.is_admin) && (
+                      <Button asChild>
+                        <Link href="/challenges/create">Create Challenge</Link>
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               )}

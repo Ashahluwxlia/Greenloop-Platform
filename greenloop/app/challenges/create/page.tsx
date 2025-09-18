@@ -22,6 +22,7 @@ export default function CreateChallengePage() {
   const [userTeams, setUserTeams] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [success, setSuccess] = useState(false)
+  const [challengeCreationEnabled, setChallengeCreationEnabled] = useState(true)
 
   const router = useRouter()
   const supabase = createClient()
@@ -61,6 +62,20 @@ export default function CreateChallengePage() {
         // Get user profile
         const { data: userProfile } = await supabase.from("users").select("*").eq("id", userData.user.id).single()
         setUser(userProfile)
+
+        const { data: challengeCreationSetting } = await supabase
+          .from("system_settings")
+          .select("setting_value")
+          .eq("key", "challenge_creation_enabled")
+          .single()
+
+        const creationEnabled = challengeCreationSetting?.setting_value === "true"
+        setChallengeCreationEnabled(creationEnabled)
+
+        if (!creationEnabled && !userProfile?.is_admin) {
+          router.push("/challenges")
+          return
+        }
 
         const teamsQuery = supabase.from("admin_team_stats").select("id, name, current_members").eq("is_active", true)
 
@@ -188,6 +203,30 @@ export default function CreateChallengePage() {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
               <p className="mt-2 text-muted-foreground">Loading...</p>
             </div>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  if (!challengeCreationEnabled && !user?.is_admin) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation user={user} />
+        <main className="container mx-auto px-4 py-8">
+          <div className="max-w-2xl mx-auto">
+            <Card>
+              <CardContent className="text-center py-8">
+                <Trophy className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="font-medium mb-2">Challenge Creation Disabled</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Challenge creation is currently disabled. Contact your administrator for assistance.
+                </p>
+                <Button asChild>
+                  <Link href="/challenges">Back to Challenges</Link>
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         </main>
       </div>
