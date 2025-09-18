@@ -1,9 +1,14 @@
+"use client"
+
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Leaf, Users, BarChart3, Target, Award, ArrowRight, CheckCircle, Zap } from "lucide-react"
+import { usePlatformSettings } from "@/hooks/use-platform-settings"
 
 export default function LandingPage() {
+  const { platform_name, company_name } = usePlatformSettings()
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -16,7 +21,7 @@ export default function LandingPage() {
             <div className="p-1.5 bg-white/20 rounded-lg">
               <Leaf className="h-5 w-5 text-white" />
             </div>
-            <span className="font-bold text-xl text-white">2degrees</span>
+            <span className="font-bold text-xl text-white">{platform_name}</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -44,8 +49,7 @@ export default function LandingPage() {
                   Fighting for Fair, <span className="text-yellow-300">Building a Sustainable Future</span>
                 </h1>
                 <p className="text-xl text-white/90 text-pretty max-w-lg">
-                  Join 2degrees in supporting a low-carbon economy, digital equity, and stronger communities across New
-                  Zealand.
+                  Join {company_name} in supporting a low-carbon economy, digital equity, and stronger communities.
                 </p>
               </div>
 
@@ -98,7 +102,7 @@ export default function LandingPage() {
       <section className="py-20 bg-muted/30">
         <div className="container px-4 mx-auto">
           <div className="text-center space-y-4 mb-16">
-            <h2 className="text-3xl lg:text-4xl font-bold text-balance">Why Choose 2degrees?</h2>
+            <h2 className="text-3xl lg:text-4xl font-bold text-balance">Why Choose {platform_name}?</h2>
             <p className="text-xl text-muted-foreground text-pretty max-w-2xl mx-auto">
               Our sustainability approach is built on four key pillars that drive meaningful change for the environment,
               community, and our team.
@@ -175,7 +179,7 @@ export default function LandingPage() {
           <div className="text-center space-y-4 mb-16">
             <h2 className="text-3xl lg:text-4xl font-bold text-balance">How It Works</h2>
             <p className="text-xl text-muted-foreground text-pretty max-w-2xl mx-auto">
-              Join 2degrees' community sustainability hub and start making a difference in three simple steps.
+              Join {company_name}'s community sustainability hub and start making a difference in three simple steps.
             </p>
           </div>
 
@@ -189,7 +193,8 @@ export default function LandingPage() {
               </div>
               <h3 className="text-xl font-semibold">Join the Movement</h3>
               <p className="text-muted-foreground">
-                Sign up with 2degrees' community sustainability hub and become part of our mission for a fairer future.
+                Sign up with {company_name}'s community sustainability hub and become part of our mission for a fairer
+                future.
               </p>
             </div>
 
@@ -229,10 +234,11 @@ export default function LandingPage() {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div className="space-y-8">
               <div className="space-y-4">
-                <h2 className="text-3xl lg:text-4xl font-bold text-balance">Transform Your Workplace with 2degrees</h2>
+                <h2 className="text-3xl lg:text-4xl font-bold text-balance">
+                  Transform Your Workplace with {platform_name}
+                </h2>
                 <p className="text-xl text-muted-foreground text-pretty">
-                  Join New Zealand's leading telecommunications company in building a sustainable and equitable future
-                  for all.
+                  Join {company_name} in building a sustainable and equitable future for all.
                 </p>
               </div>
 
@@ -261,9 +267,7 @@ export default function LandingPage() {
                   <Users className="h-6 w-6 flex-shrink-0 mt-0.5" style={{ color: "#469cd3" }} />
                   <div>
                     <h4 className="font-semibold">Community Connection</h4>
-                    <p className="text-muted-foreground">
-                      Support local volunteering and digital equity initiatives across New Zealand.
-                    </p>
+                    <p className="text-muted-foreground">Support local volunteering and digital equity initiatives.</p>
                   </div>
                 </div>
 
@@ -302,7 +306,7 @@ export default function LandingPage() {
             <div className="space-y-4">
               <h2 className="text-3xl lg:text-4xl font-bold text-balance">Ready to Make a Difference?</h2>
               <p className="text-xl text-muted-foreground text-pretty">
-                Join 2degrees on the journey to Net Zero 2040 and a fairer digital future for all New Zealanders.
+                Join {company_name} on the journey to Net Zero 2040 and a fairer digital future for all.
               </p>
             </div>
 
@@ -310,7 +314,7 @@ export default function LandingPage() {
               <Button size="lg" className="text-lg px-8 text-white" style={{ backgroundColor: "#469cd3" }} asChild>
                 <Link href="/auth/register">
                   <Zap className="mr-2 h-5 w-5" />
-                  Get Started with Greenloop Sustainability Platform
+                  Get Started with {platform_name} Sustainability Platform
                 </Link>
               </Button>
               <Button
@@ -329,7 +333,7 @@ export default function LandingPage() {
             </div>
 
             <p className="text-sm text-muted-foreground">
-              Join New Zealand's journey to Net Zero • Digital equity for all • Stronger communities together
+              Join the journey to Net Zero • Digital equity for all • Stronger communities together
             </p>
           </div>
         </div>

@@ -5,10 +5,11 @@ import { GeistMono } from "geist/font/mono"
 import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
+import { DynamicMetadata } from "@/components/dynamic-metadata"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "GreenLoop - Employee Sustainability Platform",
+  title: "Employee Sustainability Platform",
   description:
     "Engage employees in sustainability initiatives, track environmental impact, and build a greener workplace culture through gamification and team collaboration.",
   keywords: [
@@ -19,9 +20,9 @@ export const metadata: Metadata = {
     "carbon footprint",
     "eco-friendly",
   ],
-  authors: [{ name: "GreenLoop Team" }],
-  creator: "GreenLoop",
-  publisher: "GreenLoop",
+  authors: [{ name: "Platform Team" }],
+  creator: "Platform Team",
+  publisher: "Platform Team",
   formatDetection: {
     email: false,
     address: false,
@@ -32,10 +33,10 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "GreenLoop - Employee Sustainability Platform",
+    title: "Employee Sustainability Platform",
     description: "Engage employees in sustainability initiatives and track environmental impact",
     url: "https://greenloop.vercel.app",
-    siteName: "GreenLoop",
+    siteName: "Platform",
     locale: "en_US",
     type: "website",
     images: [
@@ -43,13 +44,13 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "GreenLoop - Employee Sustainability Platform",
+        alt: "Employee Sustainability Platform",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "GreenLoop - Employee Sustainability Platform",
+    title: "Employee Sustainability Platform",
     description: "Engage employees in sustainability initiatives and track environmental impact",
     images: ["/og-image.png"],
   },
@@ -97,6 +98,7 @@ export default function RootLayout({
             {children}
           </Suspense>
         </ErrorBoundary>
+        <DynamicMetadata />
         <Analytics />
       </body>
     </html>

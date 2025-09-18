@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-
+import { usePlatformSettings } from "@/hooks/use-platform-settings"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,6 +22,8 @@ export default function LoginPage() {
   const [registrationEnabled, setRegistrationEnabled] = useState<boolean>(true)
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  const { platform_name } = usePlatformSettings()
 
   useEffect(() => {
     async function checkRegistrationSetting() {
@@ -100,7 +102,7 @@ export default function LoginPage() {
               <div className="p-2 bg-primary rounded-lg">
                 <Leaf className="h-6 w-6 text-primary-foreground" />
               </div>
-              <h1 className="text-2xl font-bold text-foreground">GreenLoop</h1>
+              <h1 className="text-2xl font-bold text-foreground">{platform_name}</h1>
             </div>
             <p className="text-muted-foreground text-balance">{"Welcome back to your sustainability journey"}</p>
           </div>

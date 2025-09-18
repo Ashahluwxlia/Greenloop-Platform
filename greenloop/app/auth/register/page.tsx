@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { Leaf, Mail, Lock, User, Building2, Award as IdCard, Briefcase, AlertCircle, Eye, EyeOff } from "lucide-react"
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter"
+import { usePlatformSettings } from "@/hooks/use-platform-settings"
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -33,6 +34,8 @@ export default function RegisterPage() {
   const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null)
   const [settingsLoading, setSettingsLoading] = useState(true)
   const router = useRouter()
+
+  const { platform_name } = usePlatformSettings()
 
   const departments = [
     "Human Resources",
@@ -191,7 +194,7 @@ export default function RegisterPage() {
               <div className="p-2 bg-primary rounded-lg">
                 <Leaf className="h-6 w-6 text-primary-foreground" />
               </div>
-              <h1 className="text-2xl font-bold text-foreground">GreenLoop</h1>
+              <h1 className="text-2xl font-bold text-foreground">{platform_name}</h1>
             </div>
             <CardDescription>Checking registration availability...</CardDescription>
           </CardHeader>
@@ -209,7 +212,7 @@ export default function RegisterPage() {
               <div className="p-2 bg-primary rounded-lg">
                 <Leaf className="h-6 w-6 text-primary-foreground" />
               </div>
-              <h1 className="text-2xl font-bold text-foreground">GreenLoop</h1>
+              <h1 className="text-2xl font-bold text-foreground">{platform_name}</h1>
             </div>
             <div className="mx-auto p-3 bg-amber-100 rounded-full w-fit">
               <AlertCircle className="h-8 w-8 text-amber-600" />
@@ -239,7 +242,7 @@ export default function RegisterPage() {
               <div className="p-2 bg-primary rounded-lg">
                 <Leaf className="h-6 w-6 text-primary-foreground" />
               </div>
-              <h1 className="text-2xl font-bold text-foreground">GreenLoop</h1>
+              <h1 className="text-2xl font-bold text-foreground">{platform_name}</h1>
             </div>
             <p className="text-muted-foreground text-balance">{"Join your company's sustainability initiative"}</p>
           </div>

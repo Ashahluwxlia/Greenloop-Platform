@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
+import { usePlatformSettings } from "@/hooks/use-platform-settings"
 import {
   LayoutDashboard,
   Users,
@@ -74,6 +75,8 @@ export function AdminSidebar() {
   const { toast } = useToast()
   const supabase = createClient()
 
+  const { platform_name } = usePlatformSettings()
+
   const handleSignOut = async () => {
     try {
       const { error } = await supabase.auth.signOut()
@@ -97,7 +100,7 @@ export function AdminSidebar() {
             <Shield className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="font-bold text-sidebar-foreground">GreenLoop</h2>
+            <h2 className="font-bold text-sidebar-foreground">{platform_name}</h2>
             <p className="text-xs text-muted-foreground">Admin Panel</p>
           </div>
         </div>

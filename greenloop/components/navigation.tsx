@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { usePlatformSettings } from "@/hooks/use-platform-settings"
 import {
   Leaf,
   Home,
@@ -115,6 +116,8 @@ export function Navigation({ user }: NavigationProps) {
   }>({})
   const avatarDropdownRef = useRef<HTMLDivElement>(null)
 
+  const { platform_name } = usePlatformSettings()
+
   console.log("Navigation user data:", user)
 
   useEffect(() => {
@@ -203,7 +206,7 @@ export function Navigation({ user }: NavigationProps) {
           <div className="p-1.5 bg-primary rounded-lg">
             <Leaf className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="font-bold text-lg">GreenLoop</span>
+          <span className="font-bold text-lg">{platform_name}</span>
         </Link>
 
         <nav className="hidden lg:flex items-center flex-1">
