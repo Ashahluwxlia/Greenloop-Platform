@@ -64,13 +64,17 @@ interface UserProfile {
   is_admin?: boolean
 }
 
-const LEVEL_THRESHOLDS = [0, 100, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
+interface LevelThreshold {
+  level: number
+  points_required: number
+}
 
 export default function RewardsPage() {
   const [rewards, setRewards] = useState<LevelReward[]>([])
   const [claimedRewardDetails, setClaimedRewardDetails] = useState<ClaimedRewardDetail[]>([])
   const [userStats, setUserStats] = useState<UserStats | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [levelThresholds, setLevelThresholds] = useState<LevelThreshold[]>([])
   const [loading, setLoading] = useState(true)
   const [claiming, setClaiming] = useState<string | null>(null)
 
@@ -89,6 +93,30 @@ export default function RewardsPage() {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) return
+
+      const { data: thresholds, error: thresholdsError } = await supabase
+        .from("level_thresholds")
+        .select("level, points_required")
+        .order("level", { ascending: true })
+
+      if (thresholdsError) {
+        console.error("Error fetching level thresholds:", thresholdsError)
+        // Fallback to hardcoded thresholds if database query fails
+        setLevelThresholds([
+          { level: 1, points_required: 0 },
+          { level: 2, points_required: 100 },
+          { level: 3, points_required: 250 },
+          { level: 4, points_required: 500 },
+          { level: 5, points_required: 1000 },
+          { level: 6, points_required: 2000 },
+          { level: 7, points_required: 5000 },
+          { level: 8, points_required: 10000 },
+          { level: 9, points_required: 20000 },
+          { level: 10, points_required: 50000 },
+        ])
+      } else {
+        setLevelThresholds(thresholds || [])
+      }
 
       const { data: profile } = await supabase.from("user_profiles").select("*").eq("user_id", user.id).single()
 
@@ -137,15 +165,20 @@ export default function RewardsPage() {
 
       const totalPoints = pointsData?.reduce((sum, transaction) => sum + transaction.points, 0) || 0
 
-      let currentLevel = 0
-      for (let i = LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
-        if (totalPoints >= LEVEL_THRESHOLDS[i]) {
-          currentLevel = i
-          break
+      const calculateLevelFromPoints = (points: number, thresholds: LevelThreshold[]) => {
+        let currentLevel = 1
+        for (let i = thresholds.length - 1; i >= 0; i--) {
+          if (points >= thresholds[i].points_required) {
+            currentLevel = thresholds[i].level
+            break
+          }
         }
+        return currentLevel
       }
 
-      const nextLevelPoints = LEVEL_THRESHOLDS[currentLevel + 1] || LEVEL_THRESHOLDS[LEVEL_THRESHOLDS.length - 1]
+      const currentLevel = calculateLevelFromPoints(totalPoints, thresholds || [])
+      const nextThreshold = (thresholds || []).find((t) => t.level === currentLevel + 1)
+      const nextLevelPoints = nextThreshold?.points_required || totalPoints
       const pointsToNextLevel = Math.max(0, nextLevelPoints - totalPoints)
 
       setRewards(rewardsData || [])
@@ -157,18 +190,19 @@ export default function RewardsPage() {
         points_to_next_level: pointsToNextLevel,
       })
 
-      if (profile) {
-        setUserProfile({
-          id: user.id,
-          email: profile.email || user.email || "",
-          first_name: profile.first_name || "",
-          last_name: profile.last_name || "",
-          avatar_url: profile.avatar_url,
-          points: totalPoints,
-          level: currentLevel,
-          is_admin: profile.is_admin || false,
-        })
+      const updatedProfile = {
+        id: user.id,
+        email: profile?.email || user.email || "",
+        first_name: profile?.first_name || "",
+        last_name: profile?.last_name || "",
+        avatar_url: profile?.avatar_url,
+        points: totalPoints,
+        level: currentLevel,
+        is_admin: profile?.is_admin || false,
       }
+
+      console.log("Setting user profile with calculated data:", updatedProfile)
+      setUserProfile(updatedProfile)
     } catch (error) {
       console.error("Error fetching rewards:", error)
       toast({
@@ -358,7 +392,7 @@ export default function RewardsPage() {
                 )}
               </div>
 
-              {userStats.current_level < 10 && (
+              {userStats.current_level < 10 && levelThresholds.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm text-cyan-600">
                     <span>Level {userStats.current_level}</span>
@@ -368,11 +402,17 @@ export default function RewardsPage() {
                     <div
                       className="bg-cyan-600 h-2 rounded-full transition-all duration-300"
                       style={{
-                        width: `${
-                          ((userStats.total_points - LEVEL_THRESHOLDS[userStats.current_level]) /
-                            (userStats.next_level_points - LEVEL_THRESHOLDS[userStats.current_level])) *
-                          100
-                        }%`,
+                        width: `${(() => {
+                          const currentThreshold = levelThresholds.find((t) => t.level === userStats.current_level)
+                          const nextThreshold = levelThresholds.find((t) => t.level === userStats.current_level + 1)
+
+                          if (!currentThreshold || !nextThreshold) return 0
+
+                          const progressRange = nextThreshold.points_required - currentThreshold.points_required
+                          const currentProgress = Math.max(0, userStats.total_points - currentThreshold.points_required)
+
+                          return progressRange > 0 ? (currentProgress / progressRange) * 100 : 100
+                        })()}%`,
                       }}
                     ></div>
                   </div>

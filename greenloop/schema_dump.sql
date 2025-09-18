@@ -1,5 +1,5 @@
 
-\restrict 9GDU80h27Qh4aBOG7KGfoc1v3ypGz6NgtmXNhG3derXk34W2TfdS41SfRvXOb5S
+\restrict Shm3hNHn4tLHgY66dV2j8vyn4k3tx43WB1eJDfdaTMaaa79GIdU3UWT5cBGPbMU
 
 
 SET statement_timeout = 0;
@@ -173,21 +173,25 @@ ALTER FUNCTION "public"."award_challenge_completion_rewards"() OWNER TO "postgre
 
 
 CREATE OR REPLACE FUNCTION "public"."calculate_user_level"("user_points" integer) RETURNS integer
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
+DECLARE
+    threshold_record RECORD;
+    user_level INTEGER := 1;
 BEGIN
-  RETURN CASE 
-    WHEN user_points < 100 THEN 1
-    WHEN user_points < 250 THEN 2
-    WHEN user_points < 500 THEN 3
-    WHEN user_points < 1000 THEN 4
-    WHEN user_points < 2000 THEN 5
-    WHEN user_points < 5000 THEN 6
-    WHEN user_points < 10000 THEN 7
-    WHEN user_points < 20000 THEN 8
-    WHEN user_points < 50000 THEN 9
-    ELSE 10
-  END;
+    -- Get the highest level where user has enough points
+    FOR threshold_record IN 
+        SELECT level, points_required 
+        FROM level_thresholds 
+        ORDER BY level DESC
+    LOOP
+        IF user_points >= threshold_record.points_required THEN
+            user_level := threshold_record.level;
+            EXIT;
+        END IF;
+    END LOOP;
+    
+    RETURN user_level;
 END;
 $$;
 
@@ -588,6 +592,21 @@ $$;
 ALTER FUNCTION "public"."get_department_rankings"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_level_thresholds"() RETURNS TABLE("level" integer, "points_required" integer)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    RETURN QUERY
+    SELECT lt.level, lt.points_required
+    FROM level_thresholds lt
+    ORDER BY lt.level ASC;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_level_thresholds"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_recent_admin_activities"("p_limit" integer DEFAULT 50) RETURNS TABLE("id" "uuid", "admin_name" "text", "action" character varying, "resource_type" character varying, "resource_id" "uuid", "details" "jsonb", "created_at" timestamp with time zone)
     LANGUAGE "plpgsql"
     AS $$
@@ -707,27 +726,25 @@ CREATE OR REPLACE FUNCTION "public"."get_user_current_level"("user_uuid" "uuid")
     AS $$
 DECLARE
     total_points INTEGER;
-    user_level INTEGER;
+    user_level INTEGER := 1;
+    threshold_record RECORD;
 BEGIN
     -- Get total points for user
     SELECT COALESCE(SUM(points), 0) INTO total_points
     FROM point_transactions
     WHERE user_id = user_uuid;
     
-    -- Determine level based on points
-    CASE 
-        WHEN total_points >= 100000 THEN user_level := 10;
-        WHEN total_points >= 50000 THEN user_level := 9;
-        WHEN total_points >= 20000 THEN user_level := 8;
-        WHEN total_points >= 10000 THEN user_level := 7;
-        WHEN total_points >= 5000 THEN user_level := 6;
-        WHEN total_points >= 2000 THEN user_level := 5;
-        WHEN total_points >= 1000 THEN user_level := 4;
-        WHEN total_points >= 500 THEN user_level := 3;
-        WHEN total_points >= 250 THEN user_level := 2;
-        WHEN total_points >= 100 THEN user_level := 1;
-        ELSE user_level := 0;
-    END CASE;
+    -- Get the highest level where user has enough points
+    FOR threshold_record IN 
+        SELECT level, points_required 
+        FROM level_thresholds 
+        ORDER BY level DESC
+    LOOP
+        IF total_points >= threshold_record.points_required THEN
+            user_level := threshold_record.level;
+            EXIT;
+        END IF;
+    END LOOP;
     
     RETURN user_level;
 END;
@@ -1411,6 +1428,61 @@ $$;
 
 
 ALTER FUNCTION "public"."update_challenge_progress_on_action"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_level_threshold"("threshold_level" integer, "new_points_required" integer, "admin_user_id" "uuid") RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  result json;
+BEGIN
+  -- Check if user is admin
+  IF NOT EXISTS (
+    SELECT 1 FROM user_profiles 
+    WHERE id = admin_user_id AND role = 'admin'
+  ) THEN
+    RETURN json_build_object('success', false, 'error', 'Unauthorized: Admin access required');
+  END IF;
+
+  -- Validate input parameters
+  IF threshold_level < 1 OR threshold_level > 10 THEN
+    RETURN json_build_object('success', false, 'error', 'Invalid level: must be between 1 and 10');
+  END IF;
+
+  IF new_points_required < 0 OR new_points_required > 1000000 THEN
+    RETURN json_build_object('success', false, 'error', 'Invalid points: must be between 0 and 1,000,000');
+  END IF;
+
+  -- Update the specific level threshold with proper WHERE clause
+  UPDATE level_thresholds 
+  SET points_required = new_points_required,
+      updated_at = now()
+  WHERE level = threshold_level;
+
+  -- Check if the update was successful
+  IF NOT FOUND THEN
+    RETURN json_build_object('success', false, 'error', 'Level threshold not found');
+  END IF;
+
+  -- Recalculate all user levels based on new thresholds
+  PERFORM recalculate_all_user_levels();
+
+  -- Return success response
+  RETURN json_build_object(
+    'success', true, 
+    'message', 'Level threshold updated successfully',
+    'level', threshold_level,
+    'new_points_required', new_points_required
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN json_build_object('success', false, 'error', SQLERRM);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_level_threshold"("threshold_level" integer, "new_points_required" integer, "admin_user_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_team_stats"() RETURNS "trigger"
@@ -2209,6 +2281,24 @@ CREATE TABLE IF NOT EXISTS "public"."level_rewards" (
 ALTER TABLE "public"."level_rewards" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."level_thresholds" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "level" integer NOT NULL,
+    "points_required" integer NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "level_thresholds_level_check" CHECK ((("level" >= 1) AND ("level" <= 10))),
+    CONSTRAINT "level_thresholds_points_check" CHECK (("points_required" >= 0))
+);
+
+
+ALTER TABLE "public"."level_thresholds" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."level_thresholds" IS 'Configurable level thresholds for user progression system';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."news_articles" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "title" "text" NOT NULL,
@@ -2555,6 +2645,16 @@ ALTER TABLE ONLY "public"."content_items"
 
 ALTER TABLE ONLY "public"."level_rewards"
     ADD CONSTRAINT "level_rewards_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."level_thresholds"
+    ADD CONSTRAINT "level_thresholds_level_unique" UNIQUE ("level");
+
+
+
+ALTER TABLE ONLY "public"."level_thresholds"
+    ADD CONSTRAINT "level_thresholds_pkey" PRIMARY KEY ("id");
 
 
 
@@ -3574,6 +3674,13 @@ CREATE POLICY "content_items_update_admin" ON "public"."content_items" FOR UPDAT
 ALTER TABLE "public"."level_rewards" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."level_thresholds" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "level_thresholds_select_policy" ON "public"."level_thresholds" FOR SELECT USING (true);
+
+
+
 ALTER TABLE "public"."news_articles" ENABLE ROW LEVEL SECURITY;
 
 
@@ -4093,6 +4200,12 @@ GRANT ALL ON FUNCTION "public"."get_department_rankings"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."get_level_thresholds"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_level_thresholds"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_level_thresholds"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) TO "service_role";
@@ -4210,6 +4323,12 @@ GRANT ALL ON FUNCTION "public"."trigger_log_admin_action"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_challenge_progress_on_action"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_level_threshold"("threshold_level" integer, "new_points_required" integer, "admin_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."update_level_threshold"("threshold_level" integer, "new_points_required" integer, "admin_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_level_threshold"("threshold_level" integer, "new_points_required" integer, "admin_user_id" "uuid") TO "service_role";
 
 
 
@@ -4426,6 +4545,12 @@ GRANT ALL ON TABLE "public"."level_rewards" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."level_thresholds" TO "anon";
+GRANT ALL ON TABLE "public"."level_thresholds" TO "authenticated";
+GRANT ALL ON TABLE "public"."level_thresholds" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."news_articles" TO "anon";
 GRANT ALL ON TABLE "public"."news_articles" TO "authenticated";
 GRANT ALL ON TABLE "public"."news_articles" TO "service_role";
@@ -4552,6 +4677,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict 9GDU80h27Qh4aBOG7KGfoc1v3ypGz6NgtmXNhG3derXk34W2TfdS41SfRvXOb5S
+\unrestrict Shm3hNHn4tLHgY66dV2j8vyn4k3tx43WB1eJDfdaTMaaa79GIdU3UWT5cBGPbMU
 
 RESET ALL;

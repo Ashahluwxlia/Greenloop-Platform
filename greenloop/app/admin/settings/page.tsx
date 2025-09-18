@@ -8,23 +8,26 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
-import { Settings, Save, Globe, Loader2 } from "lucide-react"
+import { Settings, Save, Globe, Loader2, Trophy } from "lucide-react"
 
 interface SystemSettings {
   platform_name: string
   company_name: string
   challenge_creation_enabled: boolean
-  points_per_level: number
   max_team_size: number
   team_creation_enabled: boolean
   user_registration_enabled: boolean
+}
+
+interface LevelThreshold {
+  level: number
+  points_required: number
 }
 
 const DEFAULT_SETTINGS: SystemSettings = {
   platform_name: "GreenLoop",
   company_name: "GreenLoop",
   challenge_creation_enabled: true,
-  points_per_level: 1000,
   max_team_size: 10,
   team_creation_enabled: true,
   user_registration_enabled: true,
@@ -33,8 +36,10 @@ const DEFAULT_SETTINGS: SystemSettings = {
 export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [savingThresholds, setSavingThresholds] = useState(false)
   const [userProfile, setUserProfile] = useState<any>(null)
   const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS)
+  const [levelThresholds, setLevelThresholds] = useState<LevelThreshold[]>([])
 
   const { toast } = useToast()
   const supabase = createClient()
@@ -42,14 +47,12 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        // Check authentication
         const { data: authData, error: authError } = await supabase.auth.getUser()
         if (authError || !authData?.user) {
           window.location.href = "/auth/login"
           return
         }
 
-        // Check if user is admin
         const { data: profile } = await supabase.from("users").select("*").eq("id", authData.user.id).single()
 
         if (!profile?.is_admin) {
@@ -73,7 +76,6 @@ export default function AdminSettingsPage() {
               const key = setting.key as keyof SystemSettings
               let value = setting.setting_value
 
-              // Convert data types based on the data_type field
               if (setting.data_type === "boolean") {
                 value = value === "true" || value === true
               } else if (setting.data_type === "number") {
@@ -92,11 +94,20 @@ export default function AdminSettingsPage() {
           }
         } else {
           console.error("-> Failed to load settings from API")
-          // Keep default settings if API fails
+        }
+
+        const { data: thresholds, error: thresholdsError } = await supabase
+          .from("level_thresholds")
+          .select("level, points_required")
+          .order("level", { ascending: true })
+
+        if (thresholdsError) {
+          console.error("-> Error loading level thresholds:", thresholdsError)
+        } else {
+          setLevelThresholds(thresholds || [])
         }
       } catch (error) {
         console.error("-> Error loading settings:", error)
-        // Keep default settings on error
       } finally {
         setLoading(false)
       }
@@ -142,8 +153,48 @@ export default function AdminSettingsPage() {
     }
   }
 
+  const handleSaveLevelThresholds = async () => {
+    setSavingThresholds(true)
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      if (!authData?.user) throw new Error("Not authenticated")
+
+      for (const threshold of levelThresholds) {
+        const { error } = await supabase.rpc("update_level_threshold", {
+          threshold_level: threshold.level,
+          new_points_required: threshold.points_required,
+          admin_user_id: authData.user.id,
+        })
+
+        if (error) {
+          throw new Error(`Failed to update level ${threshold.level}: ${error.message}`)
+        }
+      }
+
+      toast({
+        title: "Level Thresholds Updated",
+        description: "All user levels have been recalculated based on new thresholds.",
+      })
+    } catch (error: any) {
+      console.error("-> Error saving level thresholds:", error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save level thresholds",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingThresholds(false)
+    }
+  }
+
   const updateSetting = (key: keyof SystemSettings, value: any) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const updateLevelThreshold = (level: number, points: number) => {
+    setLevelThresholds((prev) =>
+      prev.map((threshold) => (threshold.level === level ? { ...threshold, points_required: points } : threshold)),
+    )
   }
 
   if (loading) {
@@ -160,7 +211,6 @@ export default function AdminSettingsPage() {
     <div className="flex min-h-screen bg-background">
       <main className="flex-1 p-8">
         <div className="space-y-8">
-          {/* Header */}
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-4xl font-bold text-foreground flex items-center gap-4">
@@ -176,7 +226,6 @@ export default function AdminSettingsPage() {
           </div>
 
           <div className="w-full space-y-8">
-            {/* Platform Configuration Card */}
             <Card className="shadow-lg border-2">
               <CardHeader className="pb-6 bg-gradient-to-r from-primary/5 to-primary/10 rounded-t-lg">
                 <CardTitle className="flex items-center gap-3 text-2xl">
@@ -216,7 +265,6 @@ export default function AdminSettingsPage() {
               </CardContent>
             </Card>
 
-            {/* System Configuration Card */}
             <Card className="shadow-lg border-2">
               <CardHeader className="pb-6 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-950/20 dark:to-blue-900/20 rounded-t-lg">
                 <CardTitle className="flex items-center gap-3 text-2xl">
@@ -226,21 +274,7 @@ export default function AdminSettingsPage() {
                 <CardDescription className="text-lg">Core system parameters and limits</CardDescription>
               </CardHeader>
               <CardContent className="p-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-3">
-                    <Label htmlFor="points-per-level" className="text-lg font-semibold text-foreground">
-                      Points Required Per Level
-                    </Label>
-                    <Input
-                      id="points-per-level"
-                      type="number"
-                      value={settings?.points_per_level || 1000}
-                      onChange={(e) => updateSetting("points_per_level", Number.parseInt(e.target.value) || 1000)}
-                      className="h-14 text-lg border-2 focus:border-primary transition-colors"
-                      placeholder="1000"
-                    />
-                  </div>
-
+                <div className="grid grid-cols-1 gap-8">
                   <div className="space-y-3">
                     <Label htmlFor="max-team-size" className="text-lg font-semibold text-foreground">
                       Maximum Team Size
@@ -258,7 +292,52 @@ export default function AdminSettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Feature Controls Card */}
+            <Card className="shadow-lg border-2">
+              <CardHeader className="pb-6 bg-gradient-to-r from-yellow-50 to-yellow-100 dark:from-yellow-950/20 dark:to-yellow-900/20 rounded-t-lg">
+                <CardTitle className="flex items-center gap-3 text-2xl">
+                  <Trophy className="h-7 w-7 text-yellow-600" />
+                  Level Thresholds
+                </CardTitle>
+                <CardDescription className="text-lg">
+                  Configure points required for each user level (changes will recalculate all user levels)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-8">
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    {levelThresholds.map((threshold) => (
+                      <div key={threshold.level} className="space-y-2">
+                        <Label className="text-sm font-medium text-foreground">Level {threshold.level}</Label>
+                        <Input
+                          type="number"
+                          value={threshold.points_required}
+                          onChange={(e) => updateLevelThreshold(threshold.level, Number.parseInt(e.target.value) || 0)}
+                          className="h-12 text-base border-2 focus:border-primary transition-colors"
+                          placeholder="0"
+                          min="0"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={handleSaveLevelThresholds}
+                      disabled={savingThresholds}
+                      size="lg"
+                      className="px-6 py-2"
+                    >
+                      {savingThresholds ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4 mr-2" />
+                      )}
+                      Update Level Thresholds
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card className="shadow-lg border-2">
               <CardHeader className="pb-6 bg-gradient-to-r from-green-50 to-green-100 dark:from-green-950/20 dark:to-green-900/20 rounded-t-lg">
                 <CardTitle className="flex items-center gap-3 text-2xl">

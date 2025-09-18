@@ -33,6 +33,41 @@ export default async function DashboardPage() {
   // Get user profile data
   const { data: userProfile } = await supabase.from("users").select("*").eq("id", data.user.id).single()
 
+  const { data: levelThresholds } = await supabase
+    .from("level_thresholds")
+    .select("level, points_required")
+    .order("level", { ascending: true })
+
+  const calculateLevelProgress = (userPoints: number, userLevel: number) => {
+    if (!levelThresholds || levelThresholds.length === 0) {
+      // Fallback to old calculation if thresholds not available
+      const pointsToNextLevel = (userLevel || 1) * 1000 - (userPoints || 0)
+      const levelProgress = ((userPoints || 0) % 1000) / 10
+      return { pointsToNextLevel, levelProgress }
+    }
+
+    const currentThreshold = levelThresholds.find((t) => t.level === userLevel)
+    const nextThreshold = levelThresholds.find((t) => t.level === userLevel + 1)
+
+    if (!currentThreshold) {
+      return { pointsToNextLevel: 0, levelProgress: 100 }
+    }
+
+    if (!nextThreshold) {
+      // User is at max level
+      return { pointsToNextLevel: 0, levelProgress: 100 }
+    }
+
+    const pointsToNextLevel = Math.max(0, nextThreshold.points_required - (userPoints || 0))
+    const progressRange = nextThreshold.points_required - currentThreshold.points_required
+    const currentProgress = Math.max(0, (userPoints || 0) - currentThreshold.points_required)
+    const levelProgress = progressRange > 0 ? (currentProgress / progressRange) * 100 : 100
+
+    return { pointsToNextLevel, levelProgress }
+  }
+
+  const { pointsToNextLevel, levelProgress } = calculateLevelProgress(userProfile?.points || 0, userProfile?.level || 1)
+
   // Get recent actions
   const { data: recentActions } = await supabase
     .from("user_actions")
@@ -92,9 +127,6 @@ export default async function DashboardPage() {
     .eq("status", "published")
     .order("created_at", { ascending: false })
     .limit(2)
-
-  const pointsToNextLevel = (userProfile?.level || 1) * 1000 - (userProfile?.points || 0)
-  const levelProgress = ((userProfile?.points || 0) % 1000) / 10
 
   return (
     <div className="min-h-screen bg-background">
@@ -190,7 +222,9 @@ export default async function DashboardPage() {
                   <Progress value={levelProgress} className="flex-1 h-2" />
                   <span className="text-xs text-muted-foreground">Level {userProfile?.level || 1}</span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">{pointsToNextLevel} points to next level</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {pointsToNextLevel > 0 ? `${pointsToNextLevel} points to next level` : "Max level reached!"}
+                </p>
               </CardContent>
             </Card>
 
