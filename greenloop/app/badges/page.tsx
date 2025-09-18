@@ -4,7 +4,9 @@ import { Navigation } from "@/components/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Award, Lock, CheckCircle } from "lucide-react"
+import { Award, Lock, CheckCircle, Crown } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
 
 export default async function BadgesPage() {
   const supabase = await createClient()
@@ -84,6 +86,8 @@ export default async function BadgesPage() {
     }
   }
 
+  const isAdmin = userProfile?.is_admin || false
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation user={userProfile} />
@@ -91,15 +95,25 @@ export default async function BadgesPage() {
       <main className="container mx-auto px-4 py-8">
         <div className="space-y-8">
           {/* Header */}
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
-              <Award className="h-8 w-8 text-primary" />
-              Badges & Achievements
-            </h1>
-            <p className="text-muted-foreground text-balance">
-              Unlock badges by completing sustainability actions and reaching milestones. Track your progress and
-              showcase your environmental commitment.
-            </p>
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
+                <Award className="h-8 w-8 text-primary" />
+                Badges & Achievements
+              </h1>
+              <p className="text-muted-foreground text-balance">
+                Unlock badges by completing sustainability actions and reaching milestones. Track your progress and
+                showcase your environmental commitment.
+              </p>
+            </div>
+            {isAdmin && (
+              <Button variant="outline" asChild>
+                <Link href="/admin/badges">
+                  <Crown className="h-4 w-4 mr-2" />
+                  Manage Badges
+                </Link>
+              </Button>
+            )}
           </div>
 
           {/* Stats */}

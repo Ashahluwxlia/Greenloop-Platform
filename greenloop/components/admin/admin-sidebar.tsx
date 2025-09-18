@@ -20,6 +20,7 @@ import {
   User,
   CheckSquare,
   Gift,
+  Award,
 } from "lucide-react"
 
 const sidebarItems = [
@@ -52,6 +53,11 @@ const sidebarItems = [
     title: "Reward Management",
     href: "/admin/rewards",
     icon: Gift,
+  },
+  {
+    title: "Badge Management",
+    href: "/admin/badges",
+    icon: Award,
   },
   {
     title: "Analytics & Reports",

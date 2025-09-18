@@ -1,5 +1,5 @@
 
-\restrict QEc8CzyaB0eceg43VcK46b3d7rDpUcmeF5IlzFKB3s7mPgjv7ooX83uOPpc0K3N
+\restrict jDyx6AW6HhkKoPbkChFxRfmONn2vKc0PwwK9UtRsEEcFcXl3ct9vW0msvBfiXLD
 
 
 SET statement_timeout = 0;
@@ -170,6 +170,63 @@ $$;
 
 
 ALTER FUNCTION "public"."award_challenge_completion_rewards"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."award_missing_badges"() RETURNS "text"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+  user_record RECORD;
+  badge_record RECORD;
+  user_value INTEGER;
+  badges_awarded INTEGER := 0;
+BEGIN
+  -- Loop through all users
+  FOR user_record IN 
+    SELECT id FROM public.users WHERE is_active = true
+  LOOP
+    -- Loop through all active badges
+    FOR badge_record IN 
+      SELECT * FROM public.badges WHERE is_active = true
+    LOOP
+      -- Check if user already has this badge
+      IF NOT EXISTS (
+        SELECT 1 FROM public.user_badges 
+        WHERE user_id = user_record.id AND badge_id = badge_record.id
+      ) THEN
+        -- Get user's current value for the badge criteria
+        CASE badge_record.criteria_type
+          WHEN 'points' THEN
+            SELECT points INTO user_value FROM public.users WHERE id = user_record.id;
+          WHEN 'actions' THEN
+            SELECT COUNT(*) INTO user_value 
+            FROM public.user_actions 
+            WHERE user_id = user_record.id AND verification_status = 'approved';
+          WHEN 'co2_saved' THEN
+            SELECT FLOOR(total_co2_saved) INTO user_value 
+            FROM public.users WHERE id = user_record.id;
+          ELSE
+            user_value := 0;
+        END CASE;
+
+        -- Award badge if criteria met
+        IF user_value >= badge_record.criteria_value THEN
+          INSERT INTO public.user_badges (user_id, badge_id)
+          VALUES (user_record.id, badge_record.id)
+          ON CONFLICT (user_id, badge_id) DO NOTHING;
+          
+          badges_awarded := badges_awarded + 1;
+        END IF;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  RETURN 'Awarded ' || badges_awarded || ' missing badges to users.';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."award_missing_badges"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."calculate_user_level"("user_points" integer) RETURNS integer
@@ -1134,6 +1191,67 @@ $$;
 
 
 ALTER FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reevaluate_badge_awards"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    -- For UPDATE operations, remove badges from users who no longer qualify
+    IF TG_OP = 'UPDATE' THEN
+        DELETE FROM user_badges ub
+        WHERE ub.badge_id = NEW.id
+        AND NOT EXISTS (
+            SELECT 1 FROM users u
+            WHERE u.id = ub.user_id
+            AND NEW.is_active = true
+            AND (
+                -- Fixed criteria_type values to match database: 'actions' instead of 'actions_completed'
+                (NEW.criteria_type = 'actions' AND (
+                    SELECT COUNT(*) 
+                    FROM user_actions ua 
+                    WHERE ua.user_id = u.id 
+                    AND ua.verification_status = 'approved'
+                ) >= NEW.criteria_value)
+                OR
+                -- Fixed criteria_type values to match database: 'points' instead of 'points_earned'
+                (NEW.criteria_type = 'points' AND u.points >= NEW.criteria_value)
+                OR
+                (NEW.criteria_type = 'co2_saved' AND u.total_co2_saved >= NEW.criteria_value)
+            )
+        );
+    END IF;
+    
+    -- Award badge to qualifying users who don't already have it (for both INSERT and UPDATE)
+    INSERT INTO user_badges (user_id, badge_id, earned_at)
+    SELECT DISTINCT u.id, NEW.id, NOW()
+    FROM users u
+    WHERE NEW.is_active = true
+    AND NOT EXISTS (
+        SELECT 1 FROM user_badges ub 
+        WHERE ub.user_id = u.id AND ub.badge_id = NEW.id
+    )
+    AND (
+        -- Fixed criteria_type values to match database: 'actions' instead of 'actions_completed'
+        (NEW.criteria_type = 'actions' AND (
+            SELECT COUNT(*) 
+            FROM user_actions ua 
+            WHERE ua.user_id = u.id 
+            AND ua.verification_status = 'approved'
+        ) >= NEW.criteria_value)
+        OR
+        -- Fixed criteria_type values to match database: 'points' instead of 'points_earned'
+        (NEW.criteria_type = 'points' AND u.points >= NEW.criteria_value)
+        OR
+        (NEW.criteria_type = 'co2_saved' AND u.total_co2_saved >= NEW.criteria_value)
+    );
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."reevaluate_badge_awards"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") RETURNS integer
@@ -3231,6 +3349,10 @@ CREATE OR REPLACE TRIGGER "on_team_member_change" AFTER INSERT OR DELETE OR UPDA
 
 
 
+CREATE OR REPLACE TRIGGER "on_user_action_badge_check" AFTER INSERT OR UPDATE ON "public"."user_actions" FOR EACH ROW WHEN (("new"."verification_status" = 'approved'::"text")) EXECUTE FUNCTION "public"."check_and_award_badges"();
+
+
+
 CREATE OR REPLACE TRIGGER "on_user_action_for_team_stats" AFTER INSERT OR UPDATE ON "public"."user_actions" FOR EACH ROW WHEN (("new"."verification_status" = 'approved'::"text")) EXECUTE FUNCTION "public"."update_team_stats"();
 
 
@@ -3247,7 +3369,15 @@ CREATE OR REPLACE TRIGGER "simple_on_user_action_approved" AFTER INSERT OR UPDAT
 
 
 
+CREATE OR REPLACE TRIGGER "trigger_award_new_badge" AFTER INSERT ON "public"."badges" FOR EACH ROW EXECUTE FUNCTION "public"."reevaluate_badge_awards"();
+
+
+
 CREATE OR REPLACE TRIGGER "trigger_log_challenge_creation" AFTER INSERT ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."log_challenge_creation"();
+
+
+
+CREATE OR REPLACE TRIGGER "trigger_reevaluate_badge_on_update" AFTER UPDATE ON "public"."badges" FOR EACH ROW WHEN ((("new"."criteria_value" IS DISTINCT FROM "old"."criteria_value") OR ("new"."criteria_type" IS DISTINCT FROM "old"."criteria_type") OR ("new"."is_active" IS DISTINCT FROM "old"."is_active"))) EXECUTE FUNCTION "public"."reevaluate_badge_awards"();
 
 
 
@@ -3569,6 +3699,10 @@ CREATE POLICY "admin_permissions_select_own" ON "public"."admin_permissions" FOR
 
 
 ALTER TABLE "public"."badges" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "badges_admin_manage" ON "public"."badges" USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
+
 
 
 CREATE POLICY "badges_select_all" ON "public"."badges" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
@@ -3946,7 +4080,7 @@ CREATE POLICY "user_analytics_select_own" ON "public"."user_analytics" FOR SELEC
 ALTER TABLE "public"."user_badges" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "user_badges_insert_system_only" ON "public"."user_badges" FOR INSERT WITH CHECK (("public"."is_admin"() OR ("current_setting"('role'::"text") = 'service_role'::"text")));
+CREATE POLICY "user_badges_admin_manage" ON "public"."user_badges" USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
 
 
 
@@ -4214,6 +4348,12 @@ GRANT ALL ON FUNCTION "public"."award_challenge_completion_rewards"() TO "servic
 
 
 
+GRANT ALL ON FUNCTION "public"."award_missing_badges"() TO "anon";
+GRANT ALL ON FUNCTION "public"."award_missing_badges"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."award_missing_badges"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "service_role";
@@ -4399,6 +4539,12 @@ GRANT ALL ON FUNCTION "public"."recalculate_all_user_levels"() TO "service_role"
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."recalculate_single_team_stats"("target_team_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reevaluate_badge_awards"() TO "anon";
+GRANT ALL ON FUNCTION "public"."reevaluate_badge_awards"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reevaluate_badge_awards"() TO "service_role";
 
 
 
@@ -4783,6 +4929,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict QEc8CzyaB0eceg43VcK46b3d7rDpUcmeF5IlzFKB3s7mPgjv7ooX83uOPpc0K3N
+\unrestrict jDyx6AW6HhkKoPbkChFxRfmONn2vKc0PwwK9UtRsEEcFcXl3ct9vW0msvBfiXLD
 
 RESET ALL;
