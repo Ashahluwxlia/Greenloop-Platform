@@ -23,6 +23,7 @@ import {
   Shield,
   Megaphone,
   GraduationCap,
+  Gift,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -59,6 +60,11 @@ const navigationItems = [
     title: "Challenges",
     href: "/challenges",
     icon: Trophy,
+  },
+  {
+    title: "Rewards",
+    href: "/rewards",
+    icon: Gift,
   },
   {
     title: "Announcements",

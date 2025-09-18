@@ -18,6 +18,7 @@ import {
   LogOut,
   User,
   CheckSquare,
+  Gift,
 } from "lucide-react"
 
 const sidebarItems = [
@@ -45,6 +46,11 @@ const sidebarItems = [
     title: "Action Reviews",
     href: "/admin/action-reviews",
     icon: CheckSquare,
+  },
+  {
+    title: "Reward Management",
+    href: "/admin/rewards",
+    icon: Gift,
   },
   {
     title: "Analytics & Reports",
