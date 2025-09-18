@@ -11,8 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
-import { Leaf, Mail, Lock, User, Building2, Award as IdCard, Briefcase } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Leaf, Mail, Lock, User, Building2, Award as IdCard, Briefcase, AlertCircle } from "lucide-react"
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -27,6 +27,8 @@ export default function RegisterPage() {
   })
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null)
+  const [settingsLoading, setSettingsLoading] = useState(true)
   const router = useRouter()
 
   const departments = [
@@ -42,6 +44,44 @@ export default function RegisterPage() {
     "Other",
   ]
 
+  useEffect(() => {
+    async function checkRegistrationSetting() {
+      try {
+        const supabase = createClient()
+
+        // Check if user registration is enabled
+        const { data: settings, error } = await supabase
+          .from("system_settings")
+          .select("setting_value")
+          .eq("key", "user_registration_enabled")
+          .single()
+
+        if (error) {
+          console.error("Error fetching registration setting:", error)
+          // Default to enabled if we can't fetch the setting
+          setRegistrationEnabled(true)
+        } else {
+          const isEnabled = settings?.setting_value === "true" || settings?.setting_value === true
+          setRegistrationEnabled(isEnabled)
+
+          // If registration is disabled, redirect to login with message
+          if (!isEnabled) {
+            router.push("/auth/login?message=registration_disabled")
+            return
+          }
+        }
+      } catch (error) {
+        console.error("Error checking registration setting:", error)
+        // Default to enabled on error
+        setRegistrationEnabled(true)
+      } finally {
+        setSettingsLoading(false)
+      }
+    }
+
+    checkRegistrationSetting()
+  }, [router])
+
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
@@ -51,6 +91,27 @@ export default function RegisterPage() {
     const supabase = createClient()
     setIsLoading(true)
     setError(null)
+
+    try {
+      // Double-check registration is still enabled
+      const { data: settings, error: settingsError } = await supabase
+        .from("system_settings")
+        .select("setting_value")
+        .eq("key", "user_registration_enabled")
+        .single()
+
+      if (!settingsError && settings) {
+        const isEnabled = settings.setting_value === "true" || settings.setting_value === true
+        if (!isEnabled) {
+          setError("User registration is currently disabled. Please contact your administrator.")
+          setIsLoading(false)
+          return
+        }
+      }
+    } catch (settingsError) {
+      console.error("Error checking registration setting:", settingsError)
+      // Continue with registration if we can't check the setting
+    }
 
     // Validation
     if (formData.password !== formData.confirmPassword) {
@@ -94,12 +155,75 @@ export default function RegisterPage() {
     setError(null)
 
     try {
+      const supabase = createClient()
+      const { data: settings, error: settingsError } = await supabase
+        .from("system_settings")
+        .select("setting_value")
+        .eq("key", "user_registration_enabled")
+        .single()
+
+      if (!settingsError && settings) {
+        const isEnabled = settings.setting_value === "true" || settings.setting_value === true
+        if (!isEnabled) {
+          setError("User registration is currently disabled. Please contact your administrator.")
+          setIsLoading(false)
+          return
+        }
+      }
+
       // Redirect to custom Microsoft OAuth endpoint
       window.location.href = "/auth/microsoft"
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "Microsoft SSO failed")
       setIsLoading(false)
     }
+  }
+
+  if (settingsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted/30 to-accent/10 p-4">
+        <Card className="w-full max-w-md shadow-lg border-0 bg-card/80 backdrop-blur-sm">
+          <CardHeader className="text-center space-y-4">
+            <div className="flex items-center justify-center gap-2">
+              <div className="p-2 bg-primary rounded-lg">
+                <Leaf className="h-6 w-6 text-primary-foreground" />
+              </div>
+              <h1 className="text-2xl font-bold text-foreground">GreenLoop</h1>
+            </div>
+            <CardDescription>Checking registration availability...</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    )
+  }
+
+  if (registrationEnabled === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted/30 to-accent/10 p-4">
+        <Card className="w-full max-w-md shadow-lg border-0 bg-card/80 backdrop-blur-sm">
+          <CardHeader className="text-center space-y-4">
+            <div className="flex items-center justify-center gap-2">
+              <div className="p-2 bg-primary rounded-lg">
+                <Leaf className="h-6 w-6 text-primary-foreground" />
+              </div>
+              <h1 className="text-2xl font-bold text-foreground">GreenLoop</h1>
+            </div>
+            <div className="mx-auto p-3 bg-amber-100 rounded-full w-fit">
+              <AlertCircle className="h-8 w-8 text-amber-600" />
+            </div>
+            <CardTitle className="text-xl">Registration Unavailable</CardTitle>
+            <CardDescription className="text-balance">
+              New user registration is currently disabled. Please contact your administrator for access.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center">
+            <Button asChild className="w-full">
+              <Link href="/auth/login">Back to Login</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (

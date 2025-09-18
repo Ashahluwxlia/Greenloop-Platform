@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useState, useEffect } from "react"
 import { Leaf, Mail, Lock, Building2 } from "lucide-react"
 
 export default function LoginPage() {
@@ -18,7 +18,43 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [registrationEnabled, setRegistrationEnabled] = useState<boolean>(true)
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    async function checkRegistrationSetting() {
+      try {
+        const supabase = createClient()
+
+        // Check if user registration is enabled
+        const { data: settings, error } = await supabase
+          .from("system_settings")
+          .select("setting_value")
+          .eq("key", "user_registration_enabled")
+          .single()
+
+        if (!error && settings) {
+          const isEnabled = settings.setting_value === "true" || settings.setting_value === true
+          setRegistrationEnabled(isEnabled)
+        }
+      } catch (error) {
+        console.error("Error checking registration setting:", error)
+        // Default to enabled on error
+        setRegistrationEnabled(true)
+      }
+    }
+
+    checkRegistrationSetting()
+
+    // Handle URL messages
+    const message = searchParams.get("message")
+    if (message === "registration_disabled") {
+      setError("User registration is currently disabled. Please contact your administrator for access.")
+    } else if (message === "verification_complete") {
+      setError("Email verification complete! Please sign in with your credentials.")
+    }
+  }, [searchParams])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -154,12 +190,16 @@ export default function LoginPage() {
                 </Link>
                 <div className="text-sm text-muted-foreground">
                   {"Don't have an account? "}
-                  <Link
-                    href="/auth/register"
-                    className="text-primary hover:text-primary/80 underline-offset-4 hover:underline font-medium"
-                  >
-                    Register here
-                  </Link>
+                  {registrationEnabled ? (
+                    <Link
+                      href="/auth/register"
+                      className="text-primary hover:text-primary/80 underline-offset-4 hover:underline font-medium"
+                    >
+                      Register here
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">Registration is currently disabled</span>
+                  )}
                 </div>
               </div>
             </CardContent>

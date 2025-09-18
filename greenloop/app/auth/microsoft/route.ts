@@ -25,6 +25,13 @@ export async function GET(request: NextRequest) {
   // Handle OAuth callback
   if (code) {
     try {
+      const supabaseAdmin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      })
+
       // Get code verifier from state (in production, store this securely)
       const codeVerifier = searchParams.get("state")
 
@@ -89,12 +96,6 @@ export async function GET(request: NextRequest) {
       }
 
       console.log("Creating Supabase admin client...")
-      const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      })
 
       const userEmail = userData.mail || userData.userPrincipalName
 
@@ -106,99 +107,85 @@ export async function GET(request: NextRequest) {
       console.log("Creating/updating user with email:", userEmail)
 
       let userId: string
-      const existingUser = null
+      let isNewUser = false
 
-      // First, try to create the user
-      console.log("Attempting to create new user...")
-      const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-        email: userEmail,
-        email_confirm: true,
-        user_metadata: {
-          full_name: userData.displayName,
-          provider: "microsoft",
-          microsoft_id: userData.id,
-          avatar_url: userData.photo || null,
-        },
-      })
+      // First, check if user already exists
+      let page = 1
+      let foundUser = null
+      const normalizedEmail = userEmail.toLowerCase()
 
-      if (createError) {
-        // If user already exists, get the existing user
-        if (createError.message?.includes("already been registered") || createError.code === "email_exists") {
-          console.log("User already exists, fetching existing user...")
+      while (!foundUser) {
+        const { data: usersPage, error: listError } = await supabaseAdmin.auth.admin.listUsers({
+          page,
+          perPage: 1000,
+        })
 
-          let page = 1
-          let foundUser = null
-          const normalizedEmail = userEmail.toLowerCase() // Normalize email for comparison
+        if (listError) {
+          console.error("Error listing users:", listError)
+          return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/auth/login?error=user_lookup_failed`)
+        }
 
-          while (!foundUser) {
-            const { data: usersPage, error: listError } = await supabaseAdmin.auth.admin.listUsers({
-              page,
-              perPage: 1000, // Increase page size for better performance
-            })
+        if (usersPage?.users && usersPage.users.length > 0) {
+          foundUser = usersPage.users.find((user) => user.email?.toLowerCase() === normalizedEmail)
 
-            if (listError) {
-              console.error("Error listing users:", listError)
-              return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/auth/login?error=user_lookup_failed`)
-            }
+          console.log(`Searched page ${page} with ${usersPage.users.length} users, looking for: ${normalizedEmail}`)
 
-            if (usersPage?.users && usersPage.users.length > 0) {
-              // Case-insensitive email comparison
-              foundUser = usersPage.users.find((user) => user.email?.toLowerCase() === normalizedEmail)
-
-              console.log(`Searched page ${page} with ${usersPage.users.length} users, looking for: ${normalizedEmail}`)
-
-              // If we found the user or there are no more pages, break
-              if (foundUser || usersPage.users.length < 1000) {
-                break
-              }
-
-              page++
-
-              // Safety check to prevent infinite loops
-              if (page > 100) {
-                console.error("Reached maximum page limit while searching for user")
-                break
-              }
-            } else {
-              console.log("No users found in this page")
-              break
-            }
+          if (foundUser || usersPage.users.length < 1000) {
+            break
           }
 
-          if (!foundUser) {
-            console.error(
-              `User exists but could not be found in user list. Searched ${page} pages for email: ${normalizedEmail}`,
-            )
+          page++
 
-            try {
-              const tempPassword = crypto.randomUUID()
-
-              // Try to update any user with this email (this will fail if user doesn't exist)
-              const { data: users } = await supabaseAdmin.auth.admin.listUsers()
-              const userToUpdate = users?.users?.find((u) => u.email?.toLowerCase() === normalizedEmail)
-
-              if (userToUpdate) {
-                console.log("Found user through alternative search, using ID:", userToUpdate.id)
-                foundUser = userToUpdate
-              } else {
-                return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/auth/login?error=user_lookup_failed`)
-              }
-            } catch (altError) {
-              console.error("Alternative user lookup failed:", altError)
-              return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/auth/login?error=user_lookup_failed`)
-            }
+          if (page > 100) {
+            console.error("Reached maximum page limit while searching for user")
+            break
           }
-
-          userId = foundUser.id
-          console.log("Found existing user with ID:", userId)
         } else {
-          // Other creation error
+          console.log("No users found in this page")
+          break
+        }
+      }
+
+      if (foundUser) {
+        // User exists, allow sign in regardless of registration setting
+        userId = foundUser.id
+        console.log("Found existing user with ID:", userId)
+      } else {
+        // User doesn't exist, check if registration is enabled
+        const { data: settings, error: settingsError } = await supabaseAdmin
+          .from("system_settings")
+          .select("setting_value")
+          .eq("key", "user_registration_enabled")
+          .single()
+
+        if (!settingsError && settings) {
+          const isEnabled = settings.setting_value === "true" || settings.setting_value === true
+          if (!isEnabled) {
+            console.log("User registration is disabled, blocking new Microsoft OAuth registration")
+            return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/auth/login?error=registration_disabled`)
+          }
+        }
+
+        // Registration is enabled, create new user
+        isNewUser = true
+        console.log("Attempting to create new user...")
+        const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+          email: userEmail,
+          email_confirm: true,
+          user_metadata: {
+            full_name: userData.displayName,
+            provider: "microsoft",
+            microsoft_id: userData.id,
+            avatar_url: userData.photo || null,
+          },
+        })
+
+        if (createError) {
           console.error("User creation error:", createError)
           console.error("Full error details:", JSON.stringify(createError, null, 2))
           return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/auth/login?error=user_creation_failed`)
         }
-      } else {
-        // User was created successfully
+
         if (!newUser?.user) {
           console.error("User creation succeeded but no user returned")
           return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/auth/login?error=user_creation_failed`)
