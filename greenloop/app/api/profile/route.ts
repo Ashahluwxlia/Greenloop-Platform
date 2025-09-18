@@ -69,7 +69,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { first_name, last_name, department, job_title, employee_id } = body
+    const { first_name, last_name, department, job_title, employee_id, avatar_url } = body
 
     // Validate required fields
     if (!first_name || !last_name || !department || !job_title || !employee_id) {
@@ -89,16 +89,23 @@ export async function PUT(request: NextRequest) {
     }
 
     // Update user profile
+    const updateData: any = {
+      first_name,
+      last_name,
+      department,
+      job_title,
+      employee_id,
+      updated_at: new Date().toISOString(),
+    }
+
+    // Only update avatar_url if provided
+    if (avatar_url !== undefined) {
+      updateData.avatar_url = avatar_url
+    }
+
     const { data: updatedProfile, error: updateError } = await supabase
       .from("users")
-      .update({
-        first_name,
-        last_name,
-        department,
-        job_title,
-        employee_id,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq("id", user.id)
       .select()
       .single()

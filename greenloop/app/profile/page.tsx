@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { User, Award, Target, Leaf, Save, AlertCircle, CheckCircle } from "lucide-react"
+import { User, Award, Target, Leaf, Save, AlertCircle, CheckCircle, Camera } from "lucide-react"
 
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null)
@@ -26,6 +26,9 @@ export default function ProfilePage() {
     job_title: "",
     employee_id: "",
   })
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -97,6 +100,72 @@ export default function ProfilePage() {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith("image/")) {
+        setError("Please select an image file")
+        return
+      }
+
+      // Validate file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        setError("Image must be smaller than 5MB")
+        return
+      }
+
+      setProfilePhoto(file)
+
+      // Create preview
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setPhotoPreview(e.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+      setError(null)
+    }
+  }
+
+  const uploadProfilePhoto = async () => {
+    if (!profilePhoto || !user) return null
+
+    setIsUploadingPhoto(true)
+
+    try {
+      const fileExt = profilePhoto.name.split(".").pop()
+      const fileName = `${user.id}/profile_${Date.now()}.${fileExt}`
+
+      // Delete old profile photo if exists
+      if (user.avatar_url) {
+        const oldPath = user.avatar_url.split("/").pop()
+        if (oldPath) {
+          await supabase.storage.from("profile-photos").remove([`${user.id}/${oldPath}`])
+        }
+      }
+
+      // Upload new photo
+      const { error: uploadError, data: uploadData } = await supabase.storage
+        .from("profile-photos")
+        .upload(fileName, profilePhoto)
+
+      if (uploadError) {
+        throw new Error(`Failed to upload photo: ${uploadError.message}`)
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage.from("profile-photos").getPublicUrl(fileName)
+
+      return urlData.publicUrl
+    } catch (error) {
+      console.error("Photo upload error:", error)
+      throw error
+    } finally {
+      setIsUploadingPhoto(false)
+    }
+  }
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) return
@@ -106,6 +175,11 @@ export default function ProfilePage() {
     setSuccess(false)
 
     try {
+      let avatarUrl = user.avatar_url
+      if (profilePhoto) {
+        avatarUrl = await uploadProfilePhoto()
+      }
+
       const response = await fetch("/api/profile", {
         method: "PUT",
         headers: {
@@ -117,6 +191,7 @@ export default function ProfilePage() {
           department: formData.department,
           job_title: formData.job_title,
           employee_id: formData.employee_id,
+          avatar_url: avatarUrl,
         }),
       })
 
@@ -128,6 +203,8 @@ export default function ProfilePage() {
 
       setSuccess(true)
       setUser((prev: any) => ({ ...prev, ...data.profile }))
+      setProfilePhoto(null)
+      setPhotoPreview(null)
 
       setTimeout(() => setSuccess(false), 3000)
     } catch (err: any) {
@@ -180,21 +257,55 @@ export default function ProfilePage() {
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleSave} className="space-y-6">
-                    {/* Avatar Section */}
-                    <div className="flex items-center gap-4">
-                      <Avatar className="h-20 w-20">
-                        <AvatarImage src={user?.avatar_url || "/placeholder.svg"} />
-                        <AvatarFallback className="text-lg">
-                          {formData.first_name?.[0]}
-                          {formData.last_name?.[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <h3 className="font-medium">Profile Picture</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Avatar is managed through your company's directory
-                        </p>
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-4">
+                        <Avatar className="h-20 w-20">
+                          <AvatarImage src={photoPreview || user?.avatar_url || "/placeholder.svg"} />
+                          <AvatarFallback className="text-lg">
+                            {formData.first_name?.[0]}
+                            {formData.last_name?.[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                          <h3 className="font-medium">Profile Picture</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Upload a profile photo to personalize your account
+                          </p>
+                        </div>
                       </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePhotoChange}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            disabled={isUploadingPhoto}
+                          />
+                          <Button type="button" variant="outline" disabled={isUploadingPhoto}>
+                            <Camera className="h-4 w-4 mr-2" />
+                            {isUploadingPhoto ? "Uploading..." : "Choose Photo"}
+                          </Button>
+                        </div>
+
+                        {photoPreview && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => {
+                              setProfilePhoto(null)
+                              setPhotoPreview(null)
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        Supported formats: JPEG, PNG, WebP, GIF. Max size: 5MB
+                      </p>
                     </div>
 
                     {/* Name Fields */}
@@ -281,7 +392,7 @@ export default function ProfilePage() {
                       </Alert>
                     )}
 
-                    <Button type="submit" disabled={isSaving} className="w-full md:w-auto">
+                    <Button type="submit" disabled={isSaving || isUploadingPhoto} className="w-full md:w-auto">
                       <Save className="h-4 w-4 mr-2" />
                       {isSaving ? "Saving..." : "Save Changes"}
                     </Button>
