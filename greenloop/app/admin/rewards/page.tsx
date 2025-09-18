@@ -9,8 +9,21 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Gift, Clock, CheckCircle, XCircle, Mail, User, Calendar, MessageSquare } from "lucide-react"
+import {
+  Gift,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Mail,
+  User,
+  Calendar,
+  MessageSquare,
+  Plus,
+  Edit,
+  Trophy,
+} from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import { RewardCrudModal } from "@/components/admin/reward-crud-modal"
 
 interface RewardClaim {
   id: string
@@ -29,6 +42,17 @@ interface RewardClaim {
   reward_type: string
 }
 
+interface LevelReward {
+  id: string
+  level: number
+  reward_title: string
+  reward_description: string
+  reward_type: "physical" | "digital" | "experience" | "privilege"
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 interface RewardStats {
   total_claims: number
   pending_claims: number
@@ -39,10 +63,13 @@ interface RewardStats {
 
 export default function AdminRewardsPage() {
   const [claims, setClaims] = useState<RewardClaim[]>([])
+  const [rewards, setRewards] = useState<LevelReward[]>([])
   const [stats, setStats] = useState<RewardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<string | null>(null)
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
+  const [showRewardModal, setShowRewardModal] = useState(false)
+  const [selectedReward, setSelectedReward] = useState<LevelReward | null>(null)
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,12 +77,12 @@ export default function AdminRewardsPage() {
   )
 
   useEffect(() => {
-    fetchRewardClaims()
+    fetchData()
   }, [])
 
-  const fetchRewardClaims = async () => {
+  const fetchData = async () => {
     try {
-      // Get reward claims with reward details
+      // Fetch reward claims
       const { data: claimsData, error: claimsError } = await supabase
         .from("user_level_rewards")
         .select(`
@@ -70,7 +97,7 @@ export default function AdminRewardsPage() {
 
       if (claimsError) throw claimsError
 
-      // Transform data to flatten the structure
+      // Transform claims data
       const transformedClaims =
         claimsData?.map((claim: any) => ({
           ...claim,
@@ -90,11 +117,22 @@ export default function AdminRewardsPage() {
         delivered_claims: transformedClaims.filter((c: any) => c.claim_status === "delivered").length,
       }
       setStats(stats)
+
+      // Fetch level rewards
+      const { data: rewardsData, error: rewardsError } = await supabase
+        .from("level_rewards")
+        .select("*")
+        .order("level", { ascending: true })
+        .order("reward_title", { ascending: true })
+
+      if (rewardsError) throw rewardsError
+
+      setRewards(rewardsData || [])
     } catch (error) {
-      console.error("Error fetching reward claims:", error)
+      console.error("Error fetching data:", error)
       toast({
         title: "Error",
-        description: "Failed to load reward claims. Please try again.",
+        description: "Failed to load rewards data. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -135,8 +173,8 @@ export default function AdminRewardsPage() {
         description: `Reward claim has been ${newStatus}.`,
       })
 
-      // Refresh claims
-      fetchRewardClaims()
+      // Refresh data
+      fetchData()
     } catch (error) {
       console.error("Error updating claim status:", error)
       toast({
@@ -147,6 +185,16 @@ export default function AdminRewardsPage() {
     } finally {
       setUpdating(null)
     }
+  }
+
+  const handleCreateReward = () => {
+    setSelectedReward(null)
+    setShowRewardModal(true)
+  }
+
+  const handleEditReward = (reward: LevelReward) => {
+    setSelectedReward(reward)
+    setShowRewardModal(true)
   }
 
   const getStatusIcon = (status: string) => {
@@ -174,6 +222,36 @@ export default function AdminRewardsPage() {
         return "bg-red-100 text-red-800"
       case "delivered":
         return "bg-blue-100 text-blue-800"
+      default:
+        return "bg-gray-100 text-gray-800"
+    }
+  }
+
+  const getRewardTypeIcon = (type: string) => {
+    switch (type) {
+      case "physical":
+        return <Gift className="h-4 w-4" />
+      case "digital":
+        return <Trophy className="h-4 w-4" />
+      case "experience":
+        return <Calendar className="h-4 w-4" />
+      case "privilege":
+        return <CheckCircle className="h-4 w-4" />
+      default:
+        return <Gift className="h-4 w-4" />
+    }
+  }
+
+  const getRewardTypeColor = (type: string) => {
+    switch (type) {
+      case "physical":
+        return "bg-blue-100 text-blue-800"
+      case "digital":
+        return "bg-purple-100 text-purple-800"
+      case "experience":
+        return "bg-green-100 text-green-800"
+      case "privilege":
+        return "bg-orange-100 text-orange-800"
       default:
         return "bg-gray-100 text-gray-800"
     }
@@ -209,7 +287,7 @@ export default function AdminRewardsPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Reward Management</h1>
-        <p className="text-gray-600 mt-2">Manage user reward claims and track delivery status.</p>
+        <p className="text-gray-600 mt-2">Manage reward definitions and user reward claims.</p>
       </div>
 
       {/* Stats Cards */}
@@ -267,45 +345,133 @@ export default function AdminRewardsPage() {
         </div>
       )}
 
-      {/* Filter Tabs */}
-      <Tabs value={selectedStatus} onValueChange={setSelectedStatus}>
+      {/* Tabbed Interface for Reward Management */}
+      <Tabs defaultValue="claims" className="space-y-6">
         <TabsList>
-          <TabsTrigger value="all">All Claims</TabsTrigger>
-          <TabsTrigger value="pending">Pending</TabsTrigger>
-          <TabsTrigger value="approved">Approved</TabsTrigger>
-          <TabsTrigger value="delivered">Delivered</TabsTrigger>
-          <TabsTrigger value="rejected">Rejected</TabsTrigger>
+          <TabsTrigger value="claims">Reward Claims</TabsTrigger>
+          <TabsTrigger value="rewards">Reward Definitions</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={selectedStatus} className="space-y-4">
-          {filteredClaims.length === 0 ? (
+        {/* Claims Management Tab */}
+        <TabsContent value="claims" className="space-y-6">
+          {/* Filter Tabs */}
+          <Tabs value={selectedStatus} onValueChange={setSelectedStatus}>
+            <TabsList>
+              <TabsTrigger value="all">All Claims</TabsTrigger>
+              <TabsTrigger value="pending">Pending</TabsTrigger>
+              <TabsTrigger value="approved">Approved</TabsTrigger>
+              <TabsTrigger value="delivered">Delivered</TabsTrigger>
+              <TabsTrigger value="rejected">Rejected</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value={selectedStatus} className="space-y-4">
+              {filteredClaims.length === 0 ? (
+                <Card className="text-center py-12">
+                  <CardContent>
+                    <Gift className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">No Claims Found</h3>
+                    <p className="text-gray-600">
+                      {selectedStatus === "all"
+                        ? "No reward claims have been submitted yet."
+                        : `No ${selectedStatus} claims found.`}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  {filteredClaims.map((claim) => (
+                    <RewardClaimCard
+                      key={claim.id}
+                      claim={claim}
+                      onUpdateStatus={updateClaimStatus}
+                      isUpdating={updating === claim.id}
+                      getStatusIcon={getStatusIcon}
+                      getStatusColor={getStatusColor}
+                    />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+
+        {/* Reward Definitions Tab */}
+        <TabsContent value="rewards" className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900">Reward Definitions</h2>
+              <p className="text-gray-600">Create and manage the rewards available for each level.</p>
+            </div>
+            <Button onClick={handleCreateReward} className="bg-cyan-600 hover:bg-cyan-700">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Reward
+            </Button>
+          </div>
+
+          {rewards.length === 0 ? (
             <Card className="text-center py-12">
               <CardContent>
-                <Gift className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Claims Found</h3>
-                <p className="text-gray-600">
-                  {selectedStatus === "all"
-                    ? "No reward claims have been submitted yet."
-                    : `No ${selectedStatus} claims found.`}
-                </p>
+                <Trophy className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Rewards Defined</h3>
+                <p className="text-gray-600 mb-4">Create reward definitions for different levels to motivate users.</p>
+                <Button onClick={handleCreateReward} className="bg-cyan-600 hover:bg-cyan-700">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create First Reward
+                </Button>
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-4">
-              {filteredClaims.map((claim) => (
-                <RewardClaimCard
-                  key={claim.id}
-                  claim={claim}
-                  onUpdateStatus={updateClaimStatus}
-                  isUpdating={updating === claim.id}
-                  getStatusIcon={getStatusIcon}
-                  getStatusColor={getStatusColor}
-                />
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {rewards.map((reward) => (
+                <Card key={reward.id} className="hover:shadow-md transition-shadow">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-lg">{reward.reward_title}</CardTitle>
+                          {!reward.is_active && (
+                            <Badge variant="outline" className="text-xs text-gray-500">
+                              Inactive
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">
+                            Level {reward.level}
+                          </Badge>
+                          <Badge className={`text-xs ${getRewardTypeColor(reward.reward_type)}`}>
+                            <span className="flex items-center gap-1">
+                              {getRewardTypeIcon(reward.reward_type)}
+                              {reward.reward_type}
+                            </span>
+                          </Badge>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => handleEditReward(reward)}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="text-sm">{reward.reward_description}</CardDescription>
+                    <div className="mt-3 text-xs text-gray-500">
+                      Created: {new Date(reward.created_at).toLocaleDateString()}
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Reward CRUD Modal */}
+      <RewardCrudModal
+        isOpen={showRewardModal}
+        onClose={() => setShowRewardModal(false)}
+        reward={selectedReward}
+        onSuccess={fetchData}
+      />
     </div>
   )
 }
@@ -320,7 +486,6 @@ interface RewardClaimCardProps {
 
 function RewardClaimCard({ claim, onUpdateStatus, isUpdating, getStatusIcon, getStatusColor }: RewardClaimCardProps) {
   const [adminNotes, setAdminNotes] = useState(claim.admin_notes || "")
-  const [showActions, setShowActions] = useState(false)
 
   return (
     <Card className="hover:shadow-md transition-shadow">
