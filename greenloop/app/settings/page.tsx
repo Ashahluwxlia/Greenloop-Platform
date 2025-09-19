@@ -13,16 +13,36 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { SettingsIcon, Bell, Shield, Trash2, Download, AlertCircle, CheckCircle, Eye, Clock } from "lucide-react"
+import {
+  SettingsIcon,
+  Bell,
+  Shield,
+  Trash2,
+  Download,
+  AlertCircle,
+  CheckCircle,
+  Eye,
+  Target,
+  Trophy,
+  Users,
+  Megaphone,
+  GraduationCap,
+  Gift,
+  BarChart3,
+  Award,
+} from "lucide-react"
 
 export default function SettingsPage() {
   const [user, setUser] = useState<any>(null)
   const [preferences, setPreferences] = useState({
-    email_notifications: true,
-    weekly_digest: true,
+    action_status: true,
+    challenge_progress: true,
+    team_updates: true,
+    announcements: true,
+    educational_content: true,
+    reward_status: true,
     achievement_alerts: true,
     leaderboard_updates: false,
-    team_invitations: true,
     profile_visibility: "public",
     leaderboard_participation: true,
     analytics_sharing: true,
@@ -233,7 +253,7 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 w-full">
             {/* Settings Form */}
             <div className="xl:col-span-3 space-y-6">
-              <Tabs defaultValue="privacy" className="w-full">
+              <Tabs defaultValue="notifications" className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="notifications">Notifications</TabsTrigger>
                   <TabsTrigger value="privacy">Privacy & Security</TabsTrigger>
@@ -247,60 +267,134 @@ export default function SettingsPage() {
                         <Bell className="h-5 w-5" />
                         Notification Preferences
                       </CardTitle>
-                      <CardDescription>Choose what notifications you'd like to receive</CardDescription>
-                      <Alert className="border-blue-200 bg-blue-50">
-                        <Clock className="h-4 w-4 text-blue-600" />
-                        <AlertDescription className="text-blue-800">
-                          <strong>Coming Soon!</strong> Notification preferences are currently in development.
-                        </AlertDescription>
-                      </Alert>
+                      <CardDescription>Choose what notifications you'd like to receive in-app</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                      <div className="space-y-4 opacity-60">
+                      <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Email Notifications</Label>
-                            <p className="text-sm text-muted-foreground">Receive updates via email</p>
-                          </div>
-                          <Switch disabled checked={true} />
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Weekly Digest</Label>
+                            <Label className="flex items-center gap-2">
+                              <Target className="h-4 w-4 text-blue-600" />
+                              Action Status Updates
+                            </Label>
                             <p className="text-sm text-muted-foreground">
-                              Weekly summary of your sustainability progress
+                              Get notified when your actions are approved or rejected
                             </p>
                           </div>
-                          <Switch disabled checked={true} />
+                          <Switch
+                            checked={preferences.action_status}
+                            onCheckedChange={(checked) => handleSettingChange("action_status", checked)}
+                          />
                         </div>
 
                         <div className="flex items-center justify-between">
                           <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Achievement Alerts</Label>
+                            <Label className="flex items-center gap-2">
+                              <Trophy className="h-4 w-4 text-purple-600" />
+                              Challenge Progress Updates
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Notifications about challenge milestones and completion
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.challenge_progress}
+                            onCheckedChange={(checked) => handleSettingChange("challenge_progress", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-green-600" />
+                              Team Updates
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified when you're added to teams or team achievements
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.team_updates}
+                            onCheckedChange={(checked) => handleSettingChange("team_updates", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <Megaphone className="h-4 w-4 text-orange-600" />
+                              Announcements
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Receive important announcements from administrators
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.announcements}
+                            onCheckedChange={(checked) => handleSettingChange("announcements", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <GraduationCap className="h-4 w-4 text-indigo-600" />
+                              Educational Content
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified about new educational content and sustainability tips
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.educational_content}
+                            onCheckedChange={(checked) => handleSettingChange("educational_content", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <Gift className="h-4 w-4 text-pink-600" />
+                              Reward Status Updates
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Notifications about reward claims and delivery status
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.reward_status}
+                            onCheckedChange={(checked) => handleSettingChange("reward_status", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <Award className="h-4 w-4 text-emerald-600" />
+                              Achievement Alerts
+                            </Label>
                             <p className="text-sm text-muted-foreground">
                               Get notified when you earn badges or reach milestones
                             </p>
                           </div>
-                          <Switch disabled checked={true} />
+                          <Switch
+                            checked={preferences.achievement_alerts}
+                            onCheckedChange={(checked) => handleSettingChange("achievement_alerts", checked)}
+                          />
                         </div>
 
                         <div className="flex items-center justify-between">
                           <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Leaderboard Updates</Label>
+                            <Label className="flex items-center gap-2">
+                              <BarChart3 className="h-4 w-4 text-yellow-600" />
+                              Leaderboard Updates
+                            </Label>
                             <p className="text-sm text-muted-foreground">Notifications about your ranking changes</p>
                           </div>
-                          <Switch disabled checked={false} />
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Team Invitations</Label>
-                            <p className="text-sm text-muted-foreground">
-                              Receive invitations to join teams and challenges
-                            </p>
-                          </div>
-                          <Switch disabled checked={true} />
+                          <Switch
+                            checked={preferences.leaderboard_updates}
+                            onCheckedChange={(checked) => handleSettingChange("leaderboard_updates", checked)}
+                          />
                         </div>
                       </div>
                     </CardContent>

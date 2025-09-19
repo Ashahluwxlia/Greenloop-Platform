@@ -31,11 +31,14 @@ export async function GET(request: NextRequest) {
         .from("user_preferences")
         .insert({
           user_id: user.id,
-          email_notifications: true,
-          weekly_digest: true,
+          action_status: true,
+          challenge_progress: true,
+          team_updates: true,
+          announcements: true,
+          educational_content: true,
+          reward_status: true,
           achievement_alerts: true,
-          leaderboard_updates: true,
-          team_invitations: true,
+          leaderboard_updates: false,
           profile_visibility: "public",
           leaderboard_participation: true,
           analytics_sharing: true,
@@ -83,11 +86,14 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      email_notifications,
-      weekly_digest,
+      action_status,
+      challenge_progress,
+      team_updates,
+      announcements,
+      educational_content,
+      reward_status,
       achievement_alerts,
       leaderboard_updates,
-      team_invitations,
       profile_visibility,
       leaderboard_participation,
       analytics_sharing,
@@ -102,11 +108,14 @@ export async function PUT(request: NextRequest) {
     const { data: updatedPreferences, error: updateError } = await supabase
       .from("user_preferences")
       .update({
-        email_notifications,
-        weekly_digest,
+        action_status,
+        challenge_progress,
+        team_updates,
+        announcements,
+        educational_content,
+        reward_status,
         achievement_alerts,
         leaderboard_updates,
-        team_invitations,
         profile_visibility,
         leaderboard_participation,
         analytics_sharing,
