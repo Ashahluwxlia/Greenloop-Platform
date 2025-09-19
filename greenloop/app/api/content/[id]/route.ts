@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { NotificationHelpers } from "@/lib/notifications"
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -76,6 +77,10 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       )
     }
 
+    const { data: existingContent } = await supabase.from("content_items").select("status, type").eq("id", id).single()
+
+    const wasPublishing = existingContent?.status === "draft" && status === "published"
+
     const { data, error } = await supabase
       .from("content_items")
       .update({
@@ -99,6 +104,34 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     if (!data) {
       return NextResponse.json({ error: "Content not found" }, { status: 404 })
+    }
+
+    if (data && wasPublishing) {
+      try {
+        // Get all active users for notifications
+        const { data: activeUsers } = await supabase.from("users").select("id").eq("is_active", true)
+
+        if (activeUsers && activeUsers.length > 0) {
+          // Send notifications based on content type
+          const notificationPromises = activeUsers.map(async (activeUser) => {
+            if (type === "announcement") {
+              return NotificationHelpers.announcement(
+                activeUser.id,
+                title,
+                content.substring(0, 100) + (content.length > 100 ? "..." : ""),
+              )
+            } else if (type === "educational") {
+              return NotificationHelpers.newEducationalContent(activeUser.id, title)
+            }
+          })
+
+          // Send all notifications concurrently
+          await Promise.allSettled(notificationPromises)
+        }
+      } catch (notificationError) {
+        console.error("Failed to send content update notifications:", notificationError)
+        // Don't fail the entire request if notifications fail
+      }
     }
 
     // Log admin activity

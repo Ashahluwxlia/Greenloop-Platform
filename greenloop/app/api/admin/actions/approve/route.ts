@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { authenticateUser, requireAdmin, createErrorResponse, ApiException } from "@/lib/api-utils"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { NotificationHelpers } from "@/lib/notifications"
 
 export async function POST(request: NextRequest) {
   try {
@@ -111,6 +112,18 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      try {
+        await NotificationHelpers.actionApproved(
+          action.submitted_by,
+          action.title,
+          pointsValue,
+          co2Impact ? `${co2Impact} kg CO2` : undefined,
+        )
+      } catch (notificationError) {
+        console.error("Failed to send approval notification:", notificationError)
+        // Don't fail the entire request if notification fails
+      }
+
       return NextResponse.json({
         success: true,
         message: "Action approved and auto-logged for submitter",
@@ -184,6 +197,18 @@ export async function POST(request: NextRequest) {
           reference_id: actionLogId,
           description: `Completed: ${action_data?.title || "Sustainability Action"}`,
         })
+      }
+
+      try {
+        await NotificationHelpers.actionApproved(
+          actionLog.user_id,
+          action_data?.title || "Sustainability Action",
+          actionLog.points_earned,
+          actionLog.co2_saved ? `${actionLog.co2_saved} kg CO2` : undefined,
+        )
+      } catch (notificationError) {
+        console.error("Failed to send approval notification:", notificationError)
+        // Don't fail the entire request if notification fails
       }
 
       return NextResponse.json({

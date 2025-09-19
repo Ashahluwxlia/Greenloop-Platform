@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
+import { NotificationHelpers } from "@/lib/notifications"
 
 // Add member to team
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const { data: team } = await supabase
       .from("teams")
-      .select("team_leader_id, max_members")
+      .select("team_leader_id, max_members, name")
       .eq("id", params.id)
       .single()
 
@@ -82,6 +83,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .single()
 
     if (memberError) throw memberError
+
+    try {
+      await NotificationHelpers.addedToTeam(targetUser.id, team.name)
+    } catch (notificationError) {
+      console.error("Failed to send team addition notification:", notificationError)
+      // Don't fail the entire request if notification fails
+    }
 
     return NextResponse.json({
       member: {

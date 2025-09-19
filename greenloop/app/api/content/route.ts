@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { NotificationHelpers } from "@/lib/notifications"
 
 export async function GET(request: NextRequest) {
   try {
@@ -114,6 +115,34 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
+    if (data && (status === "published" || !status)) {
+      try {
+        // Get all active users for notifications
+        const { data: activeUsers } = await supabase.from("users").select("id").eq("is_active", true)
+
+        if (activeUsers && activeUsers.length > 0) {
+          // Send notifications based on content type
+          const notificationPromises = activeUsers.map(async (activeUser) => {
+            if (type === "announcement") {
+              return NotificationHelpers.announcement(
+                activeUser.id,
+                title,
+                content.substring(0, 100) + (content.length > 100 ? "..." : ""),
+              )
+            } else if (type === "educational") {
+              return NotificationHelpers.newEducationalContent(activeUser.id, title)
+            }
+          })
+
+          // Send all notifications concurrently
+          await Promise.allSettled(notificationPromises)
+        }
+      } catch (notificationError) {
+        console.error("Failed to send content notifications:", notificationError)
+        // Don't fail the entire request if notifications fail
+      }
     }
 
     // Log admin activity
