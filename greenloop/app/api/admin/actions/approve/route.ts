@@ -60,74 +60,76 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Auto-log the action for the submitter
       const adminSupabase = createAdminClient()
 
-      const { data: userActionLog, error: logError } = await adminSupabase
-        .from("user_actions")
-        .insert({
-          user_id: action.submitted_by,
-          action_id: actionId,
-          points_earned: pointsValue,
-          co2_saved: co2Impact,
-          verification_status: "approved",
-          notes: "Auto-logged upon action approval",
-          verified_by: user.id,
-          verified_at: new Date().toISOString(),
+      try {
+        const { data: userActionLog, error: logError } = await adminSupabase.rpc("safe_auto_log_action", {
+          p_user_id: action.submitted_by,
+          p_action_id: actionId,
+          p_points: pointsValue,
+          p_co2_impact: co2Impact,
+          p_verified_by: user.id,
         })
-        .select()
-        .single()
 
-      if (logError) {
+        if (logError) {
+          console.error("Auto-log error:", logError)
+          return createErrorResponse({
+            message: "Failed to auto-log action for submitter",
+            code: "DATABASE_ERROR",
+            status: 500,
+          })
+        }
+
+        // Update user points and CO2 totals
+        const { data: userProfile } = await supabase
+          .from("users")
+          .select("points, total_co2_saved")
+          .eq("id", action.submitted_by)
+          .single()
+
+        if (userProfile) {
+          await adminSupabase
+            .from("users")
+            .update({
+              points: userProfile.points + pointsValue,
+            })
+            .eq("id", action.submitted_by)
+
+          // Create points transaction
+          await adminSupabase.from("point_transactions").insert({
+            user_id: action.submitted_by,
+            points: pointsValue,
+            transaction_type: "earned",
+            reference_type: "action",
+            reference_id: userActionLog,
+            description: `Completed: ${action.title}`,
+          })
+        }
+
+        try {
+          await NotificationHelpers.actionApproved(
+            action.submitted_by,
+            action.title,
+            pointsValue,
+            co2Impact ? `${co2Impact} kg CO2` : undefined,
+          )
+        } catch (notificationError) {
+          console.error("Failed to send approval notification:", notificationError)
+          // Don't fail the entire request if notification fails
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: "Action approved and auto-logged for submitter",
+        })
+      } catch (autoLogError) {
+        console.error("Auto-log function error:", autoLogError)
         return createErrorResponse({
           message: "Failed to auto-log action for submitter",
           code: "DATABASE_ERROR",
           status: 500,
         })
       }
-
-      // Update user points and CO2 totals
-      const { data: userProfile } = await supabase
-        .from("users")
-        .select("points, total_co2_saved")
-        .eq("id", action.submitted_by)
-        .single()
-
-      if (userProfile) {
-        await adminSupabase
-          .from("users")
-          .update({
-            points: userProfile.points + pointsValue,
-          })
-          .eq("id", action.submitted_by)
-
-        // Create points transaction
-        await adminSupabase.from("point_transactions").insert({
-          user_id: action.submitted_by,
-          points: pointsValue,
-          transaction_type: "earned",
-          reference_type: "action",
-          reference_id: userActionLog.id,
-          description: `Completed: ${action.title}`,
-        })
-      }
-
-      try {
-        await NotificationHelpers.actionApproved(
-          action.submitted_by,
-          action.title,
-          pointsValue,
-          co2Impact ? `${co2Impact} kg CO2` : undefined,
-        )
-      } catch (notificationError) {
-        console.error("Failed to send approval notification:", notificationError)
-        // Don't fail the entire request if notification fails
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: "Action approved and auto-logged for submitter",
-      })
     } else {
       const adminSupabase = createAdminClient()
 

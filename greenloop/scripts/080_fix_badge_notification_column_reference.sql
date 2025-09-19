@@ -1,6 +1,9 @@
 -- Fix badge notification function to use correct column name
 -- The badges table has 'name' column, not 'badge_name'
 
+-- Drop the trigger FIRST before dropping the function to avoid dependency errors
+DROP TRIGGER IF EXISTS badge_achievement_notification ON user_badges;
+
 -- Drop the existing function with incorrect column reference
 DROP FUNCTION IF EXISTS notify_badge_achievement();
 
@@ -31,7 +34,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Recreate the trigger
-DROP TRIGGER IF EXISTS badge_achievement_notification ON user_badges;
 CREATE TRIGGER badge_achievement_notification
     AFTER INSERT ON user_badges
     FOR EACH ROW
