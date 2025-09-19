@@ -1,5 +1,5 @@
 
-\restrict jDyx6AW6HhkKoPbkChFxRfmONn2vKc0PwwK9UtRsEEcFcXl3ct9vW0msvBfiXLD
+\restrict KUUFIIxtqrWbM4k5cygw9daw9JwfF4uhHax6lwdmUMbMJrk3bxqUKjmmALPvDaU
 
 
 SET statement_timeout = 0;
@@ -471,6 +471,54 @@ $$;
 ALTER FUNCTION "public"."cleanup_expired_sessions"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying DEFAULT NULL::character varying, "p_link_type" character varying DEFAULT NULL::character varying, "p_link_id" "uuid" DEFAULT NULL::"uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    notification_id UUID;
+    user_pref_enabled BOOLEAN := FALSE;
+BEGIN
+    -- Check if user has this notification type enabled
+    CASE p_type
+        WHEN 'action_status' THEN
+            SELECT action_status INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'challenge_progress' THEN
+            SELECT challenge_progress INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'team_updates' THEN
+            SELECT team_updates INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'announcements' THEN
+            SELECT announcements INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'educational_content' THEN
+            SELECT educational_content INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'reward_status' THEN
+            SELECT reward_status INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'achievement_alerts' THEN
+            SELECT achievement_alerts INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'leaderboard_updates' THEN
+            SELECT leaderboard_updates INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        ELSE
+            user_pref_enabled := TRUE; -- Default to enabled for unknown types
+    END CASE;
+
+    -- Only create notification if user has this type enabled
+    IF user_pref_enabled THEN
+        INSERT INTO notifications (user_id, type, title, message, link_url, link_type, link_id)
+        VALUES (p_user_id, p_type, p_title, p_message, p_link_url, p_link_type, p_link_id)
+        RETURNING id INTO notification_id;
+    END IF;
+
+    RETURN notification_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") IS 'Creates a notification for a user if they have that notification type enabled';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -524,11 +572,36 @@ ALTER FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "u
 
 
 CREATE OR REPLACE FUNCTION "public"."create_user_preferences"() RETURNS "trigger"
-    LANGUAGE "plpgsql" SECURITY DEFINER
+    LANGUAGE "plpgsql"
     AS $$
 BEGIN
-    INSERT INTO "public"."user_preferences" ("user_id")
-    VALUES (NEW."id");
+    INSERT INTO user_preferences (
+        user_id,
+        profile_visibility,
+        leaderboard_participation,
+        analytics_sharing,
+        action_status,
+        challenge_progress,
+        team_updates,
+        announcements,
+        educational_content,
+        reward_status,
+        achievement_alerts,
+        leaderboard_updates
+    ) VALUES (
+        NEW.id,
+        'public',
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        FALSE
+    );
     RETURN NEW;
 END;
 $$;
@@ -715,6 +788,28 @@ $$;
 
 
 ALTER FUNCTION "public"."get_top_performers"("p_limit" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    unread_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO unread_count
+    FROM notifications
+    WHERE user_id = p_user_id AND is_read = FALSE;
+    
+    RETURN unread_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") IS 'Returns the count of unread notifications for a user';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."get_user_activity_summary"("p_user_id" "uuid") RETURNS TABLE("total_actions" bigint, "verified_actions" bigint, "pending_actions" bigint, "total_points" integer, "total_co2_saved" numeric, "current_level" integer, "badges_earned" bigint)
@@ -1045,6 +1140,49 @@ $$;
 
 
 ALTER FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    updated_count INTEGER;
+BEGIN
+    UPDATE notifications 
+    SET is_read = TRUE, updated_at = NOW()
+    WHERE user_id = p_user_id AND is_read = FALSE;
+    
+    GET DIAGNOSTICS updated_count = ROW_COUNT;
+    RETURN updated_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") IS 'Marks all unread notifications as read for a user';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    UPDATE notifications 
+    SET is_read = TRUE, updated_at = NOW()
+    WHERE id = notification_id AND user_id = p_user_id;
+    
+    RETURN FOUND;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") IS 'Marks a specific notification as read for a user';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."recalculate_all_challenge_progress"() RETURNS "void"
@@ -2527,6 +2665,28 @@ CREATE TABLE IF NOT EXISTS "public"."news_articles" (
 ALTER TABLE "public"."news_articles" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."notifications" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "type" character varying(50) NOT NULL,
+    "title" character varying(255) NOT NULL,
+    "message" "text" NOT NULL,
+    "link_url" character varying(500),
+    "link_type" character varying(50),
+    "link_id" "uuid",
+    "is_read" boolean DEFAULT false,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"()
+);
+
+
+ALTER TABLE "public"."notifications" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."notifications" IS 'Stores in-app notifications for users with links to related content';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."password_resets" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -2729,16 +2889,19 @@ ALTER TABLE "public"."user_level_rewards" OWNER TO "postgres";
 CREATE TABLE IF NOT EXISTS "public"."user_preferences" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
-    "email_notifications" boolean DEFAULT true,
-    "weekly_digest" boolean DEFAULT true,
     "achievement_alerts" boolean DEFAULT true,
-    "leaderboard_updates" boolean DEFAULT true,
-    "team_invitations" boolean DEFAULT true,
+    "leaderboard_updates" boolean DEFAULT false,
     "profile_visibility" "text" DEFAULT 'public'::"text",
     "leaderboard_participation" boolean DEFAULT true,
     "analytics_sharing" boolean DEFAULT true,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
+    "action_status" boolean DEFAULT true,
+    "challenge_progress" boolean DEFAULT true,
+    "team_updates" boolean DEFAULT true,
+    "announcements" boolean DEFAULT true,
+    "educational_content" boolean DEFAULT true,
+    "reward_status" boolean DEFAULT true,
     CONSTRAINT "user_preferences_profile_visibility_check" CHECK (("profile_visibility" = ANY (ARRAY['public'::"text", 'private'::"text"])))
 );
 
@@ -2868,6 +3031,11 @@ ALTER TABLE ONLY "public"."level_thresholds"
 
 ALTER TABLE ONLY "public"."news_articles"
     ADD CONSTRAINT "news_articles_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "notifications_pkey" PRIMARY KEY ("id");
 
 
 
@@ -3107,6 +3275,26 @@ CREATE INDEX "idx_news_articles_published" ON "public"."news_articles" USING "bt
 
 
 CREATE INDEX "idx_news_articles_published_at" ON "public"."news_articles" USING "btree" ("published_at");
+
+
+
+CREATE INDEX "idx_notifications_created_at" ON "public"."notifications" USING "btree" ("created_at");
+
+
+
+CREATE INDEX "idx_notifications_is_read" ON "public"."notifications" USING "btree" ("is_read");
+
+
+
+CREATE INDEX "idx_notifications_type" ON "public"."notifications" USING "btree" ("type");
+
+
+
+CREATE INDEX "idx_notifications_user_id" ON "public"."notifications" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_notifications_user_unread" ON "public"."notifications" USING "btree" ("user_id", "is_read") WHERE ("is_read" = false);
 
 
 
@@ -3472,6 +3660,11 @@ ALTER TABLE ONLY "public"."news_articles"
 
 
 
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."password_resets"
     ADD CONSTRAINT "password_resets_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
 
@@ -3613,6 +3806,10 @@ CREATE POLICY "Admins can view all reward claims" ON "public"."user_level_reward
 
 
 
+CREATE POLICY "System can insert notifications" ON "public"."notifications" FOR INSERT WITH CHECK (true);
+
+
+
 CREATE POLICY "Users can create their own reward claims" ON "public"."user_level_rewards" FOR INSERT TO "authenticated" WITH CHECK (("user_id" = "auth"."uid"()));
 
 
@@ -3621,11 +3818,19 @@ CREATE POLICY "Users can insert their own preferences" ON "public"."user_prefere
 
 
 
+CREATE POLICY "Users can update their own notifications" ON "public"."notifications" FOR UPDATE USING (("auth"."uid"() = "user_id"));
+
+
+
 CREATE POLICY "Users can update their own preferences" ON "public"."user_preferences" FOR UPDATE USING (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can view active level rewards" ON "public"."level_rewards" FOR SELECT TO "authenticated" USING (("is_active" = true));
+
+
+
+CREATE POLICY "Users can view their own notifications" ON "public"."notifications" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
@@ -3918,6 +4123,9 @@ CREATE POLICY "news_articles_admin_manage" ON "public"."news_articles" USING ("p
 
 CREATE POLICY "news_articles_select_secure" ON "public"."news_articles" FOR SELECT USING ((("is_published" = true) OR "public"."is_admin"()));
 
+
+
+ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."password_resets" ENABLE ROW LEVEL SECURITY;
@@ -4403,6 +4611,12 @@ GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") TO "service_role";
@@ -4449,6 +4663,12 @@ GRANT ALL ON FUNCTION "public"."get_recent_admin_activities"("p_limit" integer) 
 GRANT ALL ON FUNCTION "public"."get_top_performers"("p_limit" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_top_performers"("p_limit" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_top_performers"("p_limit" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") TO "service_role";
 
 
 
@@ -4521,6 +4741,18 @@ GRANT ALL ON FUNCTION "public"."log_personal_challenge_security_event"() TO "ser
 GRANT ALL ON FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") TO "service_role";
 
 
 
@@ -4809,6 +5041,12 @@ GRANT ALL ON TABLE "public"."news_articles" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."notifications" TO "anon";
+GRANT ALL ON TABLE "public"."notifications" TO "authenticated";
+GRANT ALL ON TABLE "public"."notifications" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."password_resets" TO "anon";
 GRANT ALL ON TABLE "public"."password_resets" TO "authenticated";
 GRANT ALL ON TABLE "public"."password_resets" TO "service_role";
@@ -4929,6 +5167,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict jDyx6AW6HhkKoPbkChFxRfmONn2vKc0PwwK9UtRsEEcFcXl3ct9vW0msvBfiXLD
+\unrestrict KUUFIIxtqrWbM4k5cygw9daw9JwfF4uhHax6lwdmUMbMJrk3bxqUKjmmALPvDaU
 
 RESET ALL;
