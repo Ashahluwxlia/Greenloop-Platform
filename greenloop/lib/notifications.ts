@@ -1,3 +1,5 @@
+import { createClient } from "@/lib/supabase/server"
+
 interface CreateNotificationParams {
   user_id: string
   type:
@@ -18,19 +20,30 @@ interface CreateNotificationParams {
 
 export async function createNotification(params: CreateNotificationParams) {
   try {
-    const response = await fetch("/api/notifications/create", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(params),
-    })
+    const supabase = await createClient()
 
-    if (!response.ok) {
-      throw new Error("Failed to create notification")
+    const { data, error } = await supabase
+      .from("notifications")
+      .insert([
+        {
+          user_id: params.user_id,
+          type: params.type,
+          title: params.title,
+          message: params.message,
+          link_url: params.link_url,
+          link_type: params.link_type,
+          link_id: params.link_id,
+          is_read: false,
+          created_at: new Date().toISOString(),
+        },
+      ])
+      .select()
+
+    if (error) {
+      throw new Error(`Database error: ${error.message}`)
     }
 
-    return await response.json()
+    return data?.[0]
   } catch (error) {
     console.error("Error creating notification:", error)
     throw error
