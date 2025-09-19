@@ -1,5 +1,5 @@
 
-\restrict KUUFIIxtqrWbM4k5cygw9daw9JwfF4uhHax6lwdmUMbMJrk3bxqUKjmmALPvDaU
+\restrict qb0OIyBEVH1ckKYt5YxUnlcyDSU0MtDy4AO3ZLjLftkuiDEB0aUXao510otEIPn
 
 
 SET statement_timeout = 0;
@@ -133,6 +133,17 @@ BEGIN
                             'challenge'
                         );
                         
+                        -- Create notification for challenge completion
+                        PERFORM create_notification(
+                            team_member_record.user_id,
+                            'challenge_progress',
+                            'Challenge Completed! 🎉',
+                            format('Challenge completed! You earned %s points from ''%s''', challenge_record.reward_points, challenge_record.title),
+                            '/challenges',
+                            'challenge',
+                            challenge_record.id::text
+                        );
+                        
                         RAISE NOTICE 'Awarded % points to user % for completing team challenge %', 
                             challenge_record.reward_points, team_member_record.user_id, challenge_record.title;
                     END LOOP;
@@ -155,11 +166,64 @@ BEGIN
                         'challenge'
                     );
                     
+                    -- Create notification for challenge completion
+                    PERFORM create_notification(
+                        NEW.user_id,
+                        'challenge_progress',
+                        'Challenge Completed! 🎉',
+                        format('Challenge completed! You earned %s points from ''%s''', challenge_record.reward_points, challenge_record.title),
+                        '/challenges',
+                        'challenge',
+                        challenge_record.id::text
+                    );
+                    
                     RAISE NOTICE 'Awarded % points to user % for completing company challenge %', 
                         challenge_record.reward_points, NEW.user_id, challenge_record.title;
                         
             END CASE;
             
+        ELSE
+            -- Even if no reward points, still send completion notification
+            IF challenge_record.challenge_type = 'individual' THEN
+                PERFORM create_notification(
+                    NEW.user_id,
+                    'challenge_progress',
+                    'Challenge Completed! 🎉',
+                    format('Congratulations! You completed ''%s''', challenge_record.title),
+                    '/challenges',
+                    'challenge',
+                    challenge_record.id::text
+                );
+            ELSIF challenge_record.challenge_type = 'team' THEN
+                -- Send notification to all team members who completed
+                FOR team_member_record IN
+                    SELECT DISTINCT cp.user_id
+                    FROM challenge_participants cp
+                    WHERE cp.challenge_id = NEW.challenge_id
+                    AND cp.user_id IS NOT NULL
+                    AND cp.completed = true
+                LOOP
+                    PERFORM create_notification(
+                        team_member_record.user_id,
+                        'challenge_progress',
+                        'Challenge Completed! 🎉',
+                        format('Congratulations! Your team completed ''%s''', challenge_record.title),
+                        '/challenges',
+                        'challenge',
+                        challenge_record.id::text
+                    );
+                END LOOP;
+            ELSIF challenge_record.challenge_type = 'company' THEN
+                PERFORM create_notification(
+                    NEW.user_id,
+                    'challenge_progress',
+                    'Challenge Completed! 🎉',
+                    format('Congratulations! You completed the company challenge ''%s''', challenge_record.title),
+                    '/challenges',
+                    'challenge',
+                    challenge_record.id::text
+                );
+            END IF;
         END IF;
         
     END IF;
@@ -906,6 +970,30 @@ $$;
 ALTER FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    user_position INTEGER;
+BEGIN
+    SELECT position INTO user_position
+    FROM (
+        SELECT 
+            id,
+            ROW_NUMBER() OVER (ORDER BY points DESC, created_at ASC) as position
+        FROM users 
+        WHERE is_active = true
+    ) ranked_users
+    WHERE id = user_id_param;
+    
+    RETURN COALESCE(user_position, 0);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -1185,6 +1273,68 @@ COMMENT ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", 
 
 
 
+CREATE OR REPLACE FUNCTION "public"."notify_badge_achievement"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    -- Send notification for new badge
+    PERFORM create_notification_if_enabled(
+        NEW.user_id,
+        'achievement_alerts',
+        'New Achievement Unlocked! 🏆',
+        'New Achievement Unlocked: ''' || NEW.badge_name || '''',
+        '/badges',
+        'badge',
+        NEW.id::text
+    );
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_badge_achievement"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_level_milestone"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    old_level INTEGER;
+    new_level INTEGER;
+    level_threshold_points INTEGER;
+BEGIN
+    -- Calculate old and new levels using the level calculation function
+    SELECT calculate_user_level(OLD.points) INTO old_level;
+    SELECT calculate_user_level(NEW.points) INTO new_level;
+    
+    -- Only send notification if level increased
+    IF new_level > old_level THEN
+        -- Get the points required for the new level
+        SELECT points_required INTO level_threshold_points
+        FROM level_thresholds
+        WHERE level = new_level;
+        
+        -- Send milestone notification
+        PERFORM create_notification_if_enabled(
+            NEW.user_id,
+            'achievement_alerts',
+            'Milestone Reached! ⭐',
+            'Milestone Reached: Level ' || new_level || ' achieved with ' || NEW.points || ' points!',
+            '/profile',
+            'badge',
+            NEW.user_id::text
+        );
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_level_milestone"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."recalculate_all_challenge_progress"() RETURNS "void"
     LANGUAGE "plpgsql"
     AS $$
@@ -1423,6 +1573,57 @@ $$;
 ALTER FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."send_weekly_points_notifications"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    user_record RECORD;
+    weekly_points INTEGER;
+    start_date DATE;
+    end_date DATE;
+BEGIN
+    -- Calculate this week's date range
+    start_date := date_trunc('week', CURRENT_DATE);
+    end_date := start_date + INTERVAL '7 days';
+    
+    -- Loop through all active users
+    FOR user_record IN 
+        SELECT DISTINCT user_id 
+        FROM point_transactions 
+        WHERE created_at >= start_date 
+        AND created_at < end_date
+    LOOP
+        -- Calculate weekly points for this user
+        SELECT COALESCE(SUM(points), 0) INTO weekly_points
+        FROM point_transactions
+        WHERE user_id = user_record.user_id
+        AND created_at >= start_date
+        AND created_at < end_date;
+        
+        -- Send notification if user earned points this week
+        IF weekly_points > 0 THEN
+            PERFORM create_notification_if_enabled(
+                user_record.user_id,
+                'achievement_alerts',
+                'Weekly Points! 🎯',
+                'You''ve earned ' || weekly_points || ' points this week!',
+                '/profile',
+                'badge',
+                user_record.user_id::text
+            );
+        END IF;
+    END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."send_weekly_points_notifications"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."send_weekly_points_notifications"() IS 'Send weekly points summary notifications to all users. Should be called by a scheduled job every Monday at 9 AM.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."simple_update_user_co2_savings"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -1441,6 +1642,78 @@ $$;
 
 
 ALTER FUNCTION "public"."simple_update_user_co2_savings"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."track_leaderboard_changes"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    old_position INTEGER;
+    new_position INTEGER;
+    position_change INTEGER;
+BEGIN
+    -- Only process when points change
+    IF NEW.points != OLD.points THEN
+        -- Get old position (approximate based on old points)
+        SELECT COUNT(*) + 1 INTO old_position
+        FROM users 
+        WHERE points > OLD.points AND is_active = true;
+        
+        -- Get new position
+        new_position := get_user_leaderboard_position(NEW.id);
+        
+        -- Calculate position change
+        position_change := old_position - new_position;
+        
+        -- Send notifications based on position changes
+        IF position_change > 0 THEN
+            -- User moved up
+            IF new_position = 1 THEN
+                -- User reached #1
+                PERFORM create_notification(
+                    NEW.id,
+                    'leaderboard_updates',
+                    'Top of Leaderboard! 🥇',
+                    'Congratulations! You''re now #1 on the leaderboard!',
+                    '/leaderboard',
+                    'leaderboard',
+                    NULL
+                );
+            ELSIF position_change >= 5 THEN
+                -- Significant movement (5+ positions)
+                PERFORM create_notification(
+                    NEW.id,
+                    'leaderboard_updates',
+                    'Leaderboard Update 📈',
+                    format('You moved up %s positions on the leaderboard! Now ranked #%s', position_change, new_position),
+                    '/leaderboard',
+                    'leaderboard',
+                    NULL
+                );
+            END IF;
+        END IF;
+        
+        -- Check for trending (weekly basis - simplified to recent activity)
+        -- This is a simplified version - in production you might want more sophisticated trending logic
+        IF position_change >= 3 AND NEW.updated_at > NOW() - INTERVAL '7 days' THEN
+            PERFORM create_notification(
+                NEW.id,
+                'leaderboard_updates',
+                'Trending Up! ⚡',
+                format('You''re trending up! +%s positions this week', position_change),
+                '/leaderboard',
+                'leaderboard',
+                NULL
+            );
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."track_leaderboard_changes"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."trigger_log_admin_action"() RETURNS "trigger"
@@ -1911,6 +2184,46 @@ $$;
 
 
 ALTER FUNCTION "public"."update_user_points"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_user_points_and_notify"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    total_points INTEGER;
+    old_level INTEGER;
+    new_level INTEGER;
+BEGIN
+    -- Calculate total points for the user
+    SELECT COALESCE(SUM(points), 0) INTO total_points
+    FROM point_transactions
+    WHERE user_id = NEW.user_id;
+    
+    -- Get old level (before this transaction)
+    SELECT calculate_user_level(total_points - NEW.points) INTO old_level;
+    
+    -- Get new level (after this transaction)
+    SELECT calculate_user_level(total_points) INTO new_level;
+    
+    -- Send notification if level increased
+    IF new_level > old_level THEN
+        PERFORM create_notification_if_enabled(
+            NEW.user_id,
+            'achievement_alerts',
+            'Milestone Reached! ⭐',
+            'Milestone Reached: Level ' || new_level || ' achieved with ' || total_points || ' points!',
+            '/profile',
+            'badge',
+            NEW.user_id::text
+        );
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_user_points_and_notify"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."validate_level_thresholds_order"() RETURNS "trigger"
@@ -3501,6 +3814,10 @@ CREATE OR REPLACE TRIGGER "award_challenge_rewards_trigger" AFTER UPDATE ON "pub
 
 
 
+CREATE OR REPLACE TRIGGER "badge_achievement_notification" AFTER INSERT ON "public"."user_badges" FOR EACH ROW EXECUTE FUNCTION "public"."notify_badge_achievement"();
+
+
+
 CREATE OR REPLACE TRIGGER "check_personal_challenge_rate_limit_trigger" BEFORE INSERT ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."check_personal_challenge_rate_limit"();
 
 
@@ -3510,6 +3827,14 @@ CREATE OR REPLACE TRIGGER "create_user_preferences_trigger" AFTER INSERT ON "pub
 
 
 CREATE OR REPLACE TRIGGER "ensure_team_leader_trigger" AFTER INSERT OR UPDATE OF "team_leader_id" ON "public"."teams" FOR EACH ROW EXECUTE FUNCTION "public"."ensure_team_leader_in_members"();
+
+
+
+CREATE OR REPLACE TRIGGER "leaderboard_notification_trigger" AFTER UPDATE ON "public"."users" FOR EACH ROW WHEN (("new"."points" IS DISTINCT FROM "old"."points")) EXECUTE FUNCTION "public"."track_leaderboard_changes"();
+
+
+
+CREATE OR REPLACE TRIGGER "level_milestone_notification" AFTER INSERT ON "public"."point_transactions" FOR EACH ROW EXECUTE FUNCTION "public"."update_user_points_and_notify"();
 
 
 
@@ -4690,6 +5015,12 @@ GRANT ALL ON FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") TO "
 
 
 
+GRANT ALL ON FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "anon";
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
@@ -4756,6 +5087,18 @@ GRANT ALL ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid"
 
 
 
+GRANT ALL ON FUNCTION "public"."notify_badge_achievement"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_badge_achievement"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_badge_achievement"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_level_milestone"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_level_milestone"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_level_milestone"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "anon";
 GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "service_role";
@@ -4786,9 +5129,21 @@ GRANT ALL ON FUNCTION "public"."safe_check_max_participants"("challenge_id_param
 
 
 
+GRANT ALL ON FUNCTION "public"."send_weekly_points_notifications"() TO "anon";
+GRANT ALL ON FUNCTION "public"."send_weekly_points_notifications"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."send_weekly_points_notifications"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "anon";
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."track_leaderboard_changes"() TO "anon";
+GRANT ALL ON FUNCTION "public"."track_leaderboard_changes"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."track_leaderboard_changes"() TO "service_role";
 
 
 
@@ -4831,6 +5186,12 @@ GRANT ALL ON FUNCTION "public"."update_user_level"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_user_points_and_notify"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_user_points_and_notify"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_user_points_and_notify"() TO "service_role";
 
 
 
@@ -5167,6 +5528,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict KUUFIIxtqrWbM4k5cygw9daw9JwfF4uhHax6lwdmUMbMJrk3bxqUKjmmALPvDaU
+\unrestrict qb0OIyBEVH1ckKYt5YxUnlcyDSU0MtDy4AO3ZLjLftkuiDEB0aUXao510otEIPn
 
 RESET ALL;
