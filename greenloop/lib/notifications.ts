@@ -22,28 +22,21 @@ export async function createNotification(params: CreateNotificationParams) {
   try {
     const supabase = await createClient()
 
-    const { data, error } = await supabase
-      .from("notifications")
-      .insert([
-        {
-          user_id: params.user_id,
-          type: params.type,
-          title: params.title,
-          message: params.message,
-          link_url: params.link_url,
-          link_type: params.link_type,
-          link_id: params.link_id,
-          is_read: false,
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
+    const { data, error } = await supabase.rpc("create_notification", {
+      p_user_id: params.user_id,
+      p_type: params.type,
+      p_title: params.title,
+      p_message: params.message,
+      p_link_url: params.link_url || null,
+      p_link_type: params.link_type || null,
+      p_link_id: params.link_id || null,
+    })
 
     if (error) {
       throw new Error(`Database error: ${error.message}`)
     }
 
-    return data?.[0]
+    return data
   } catch (error) {
     console.error("Error creating notification:", error)
     throw error
