@@ -1,5 +1,5 @@
 
-\restrict rf3yaKvm3hBCAtEUJ2oLng2eZWIiaqPjssdgAAanTKcn9AtMKRBHyGIQTROAYnc
+\restrict jEBBCMHPKLdb0X8qeTlc0FPzS1OgJUgE94gCFaRTR2DsKymGTQ1NmgFLXQielK8
 
 
 SET statement_timeout = 0;
@@ -3698,6 +3698,22 @@ ALTER TABLE ONLY "public"."users"
 
 
 
+CREATE INDEX "idx_admin_activities_action_type" ON "public"."admin_activities" USING "btree" ("action_type");
+
+
+
+CREATE INDEX "idx_admin_activities_admin_id" ON "public"."admin_activities" USING "btree" ("admin_id");
+
+
+
+CREATE INDEX "idx_admin_activities_created_at" ON "public"."admin_activities" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_admin_activities_target" ON "public"."admin_activities" USING "btree" ("target_type", "target_id");
+
+
+
 CREATE INDEX "idx_admin_audit_log_action" ON "public"."admin_audit_log" USING "btree" ("action_type");
 
 
@@ -4089,6 +4105,10 @@ CREATE OR REPLACE TRIGGER "on_team_member_change" AFTER INSERT OR DELETE OR UPDA
 
 
 
+CREATE OR REPLACE TRIGGER "on_user_action_badge_check" AFTER INSERT OR UPDATE ON "public"."user_actions" FOR EACH ROW WHEN (("new"."verification_status" = 'approved'::"text")) EXECUTE FUNCTION "public"."check_and_award_badges"();
+
+
+
 CREATE OR REPLACE TRIGGER "on_user_action_for_team_stats" AFTER INSERT OR UPDATE ON "public"."user_actions" FOR EACH ROW WHEN (("new"."verification_status" = 'approved'::"text")) EXECUTE FUNCTION "public"."update_team_stats"();
 
 
@@ -4151,6 +4171,11 @@ CREATE OR REPLACE TRIGGER "validate_personal_challenge_trigger" BEFORE INSERT OR
 
 ALTER TABLE ONLY "public"."action_attachments"
     ADD CONSTRAINT "action_attachments_user_action_id_fkey" FOREIGN KEY ("user_action_id") REFERENCES "public"."user_actions"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."admin_activities"
+    ADD CONSTRAINT "admin_activities_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -4329,6 +4354,12 @@ ALTER TABLE ONLY "public"."users"
 
 
 
+CREATE POLICY "Admins can insert admin activities" ON "public"."admin_activities" FOR INSERT WITH CHECK (((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))) AND ("admin_id" = "auth"."uid"())));
+
+
+
 CREATE POLICY "Admins can manage level rewards" ON "public"."level_rewards" TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."users"
   WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
@@ -4338,6 +4369,12 @@ CREATE POLICY "Admins can manage level rewards" ON "public"."level_rewards" TO "
 CREATE POLICY "Admins can update reward claims" ON "public"."user_level_rewards" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."users"
   WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
+
+
+
+CREATE POLICY "Admins can view all admin activities" ON "public"."admin_activities" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true) AND ("users"."is_active" = true)))));
 
 
 
@@ -4429,6 +4466,9 @@ CREATE POLICY "action_categories_update_admin" ON "public"."action_categories" F
    FROM "public"."users"
   WHERE (("users"."id" = "auth"."uid"()) AND ("users"."is_admin" = true)))));
 
+
+
+ALTER TABLE "public"."admin_activities" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."admin_audit_log" ENABLE ROW LEVEL SECURITY;
@@ -4899,6 +4939,38 @@ CREATE POLICY "users_update_secure" ON "public"."users" FOR UPDATE USING (((("au
 ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
 
 
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."admin_activities";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."admin_permissions";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."badges";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."content_items";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."point_transactions";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."security_audit_log";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."user_analytics";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."users";
+
+
+
 GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
@@ -5295,6 +5367,7 @@ GRANT ALL ON FUNCTION "public"."notify_badge_achievement"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."notify_educational_content_created"() TO "anon";
 GRANT ALL ON FUNCTION "public"."notify_educational_content_created"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."notify_educational_content_created"() TO "service_role";
+
 
 
 GRANT ALL ON FUNCTION "public"."notify_level_milestone"() TO "anon";
@@ -5738,6 +5811,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict rf3yaKvm3hBCAtEUJ2oLng2eZWIiaqPjssdgAAanTKcn9AtMKRBHyGIQTROAYnc
+\unrestrict jEBBCMHPKLdb0X8qeTlc0FPzS1OgJUgE94gCFaRTR2DsKymGTQ1NmgFLXQielK8
 
 RESET ALL;
