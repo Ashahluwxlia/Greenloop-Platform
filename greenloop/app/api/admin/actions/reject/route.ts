@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { authenticateUser, requireAdmin, createErrorResponse, ApiException } from "@/lib/api-utils"
-import { NotificationHelpers } from "@/lib/notifications"
+import { createAdminClient } from "@/lib/supabase/admin"
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,10 +40,25 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      // Personal action rejections don't have user_actions records, so we need to handle this differently
+      // We'll create a temporary user_action record with rejected status to trigger the notification
+      const adminSupabase = createAdminClient()
+
       try {
-        await NotificationHelpers.actionRejected(action.submitted_by, action.title, rejectionReason)
+        // Create a temporary user_action record to trigger the notification system
+        await adminSupabase.from("user_actions").insert({
+          user_id: action.submitted_by,
+          action_id: actionId,
+          points_earned: 0,
+          co2_saved: 0,
+          verification_status: "rejected",
+          notes: rejectionReason,
+          verified_by: user.id,
+          verified_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+        })
       } catch (notificationError) {
-        console.error("Failed to send rejection notification:", notificationError)
+        console.error("Failed to create notification record:", notificationError)
         // Don't fail the entire request if notification fails
       }
 
@@ -85,16 +100,7 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      try {
-        await NotificationHelpers.actionRejected(
-          actionLog.user_id,
-          actionLog.sustainability_actions?.title || "Sustainability Action",
-          rejectionReason,
-        )
-      } catch (notificationError) {
-        console.error("Failed to send rejection notification:", notificationError)
-        // Don't fail the entire request if notification fails
-      }
+      // The trigger_notify_action_status_change will fire when user_actions is updated with verification_status = 'rejected'
 
       return NextResponse.json({
         success: true,

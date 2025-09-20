@@ -1,6 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
+import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -41,6 +44,17 @@ interface NotificationsResponse {
   page: number
   limit: number
   has_more: boolean
+}
+
+interface UserProfile {
+  id: string
+  email: string
+  first_name: string
+  last_name: string
+  avatar_url?: string
+  points: number
+  level: number
+  is_admin?: boolean
 }
 
 const getNotificationIcon = (type: string) => {
@@ -113,6 +127,11 @@ const formatNotificationType = (type: string) => {
 }
 
 export default function NotificationsPage() {
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [isLoadingUser, setIsLoadingUser] = useState(true)
+  const router = useRouter()
+  const supabase = createClient()
+
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -120,6 +139,45 @@ export default function NotificationsPage() {
   const [showUnreadOnly, setShowUnreadOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
+
+  useEffect(() => {
+    async function loadUserProfile() {
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser()
+        if (userError || !userData?.user) {
+          router.push("/auth/login")
+          return
+        }
+
+        const { data: profile } = await supabase.from("users").select("*").eq("id", userData.user.id).single()
+
+        if (profile) {
+          setUserProfile({
+            id: profile.id,
+            email: profile.email,
+            first_name: profile.first_name || "",
+            last_name: profile.last_name || "",
+            avatar_url: profile.avatar_url,
+            points: profile.points || 0,
+            level: profile.level || 1,
+            is_admin: profile.is_admin || false,
+          })
+        }
+      } catch (error) {
+        console.error("Error loading user profile:", error)
+      } finally {
+        setIsLoadingUser(false)
+      }
+    }
+
+    loadUserProfile()
+  }, [router, supabase])
+
+  useEffect(() => {
+    if (!isLoadingUser && userProfile) {
+      fetchNotifications(1, showUnreadOnly)
+    }
+  }, [showUnreadOnly, isLoadingUser, userProfile])
 
   const fetchNotifications = async (pageNum = 1, unreadOnly = false) => {
     try {
@@ -141,10 +199,6 @@ export default function NotificationsPage() {
       setLoading(false)
     }
   }
-
-  useEffect(() => {
-    fetchNotifications(1, showUnreadOnly)
-  }, [showUnreadOnly])
 
   const markNotificationAsRead = async (notificationId: string) => {
     try {
@@ -203,10 +257,11 @@ export default function NotificationsPage() {
     }
   }
 
-  if (loading) {
+  if (loading || isLoadingUser) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
+      <div className="min-h-screen bg-background">
+        <Navigation user={userProfile || undefined} />
+        <div className="w-full px-4 py-8">
           <div className="animate-pulse">
             <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
             <div className="space-y-4">
@@ -221,8 +276,9 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-background">
+      <Navigation user={userProfile || undefined} />
+      <div className="w-full px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <BellRing className="h-8 w-8 text-primary" />

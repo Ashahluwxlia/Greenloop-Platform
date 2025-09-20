@@ -65,16 +65,7 @@ export default function CreateTeamPage() {
           return
         }
 
-        const { data: existingMembership } = await supabase
-          .from("team_members")
-          .select("id")
-          .eq("user_id", userData.user.id)
-          .single()
-
-        if (existingMembership) {
-          router.push("/teams")
-          return
-        }
+        // Users should be allowed to create teams even if they're already in other teams
       } catch (err) {
         setError("Failed to load user data")
       } finally {

@@ -118,7 +118,7 @@ export default function RewardsPage() {
         setLevelThresholds(thresholds || [])
       }
 
-      const { data: profile } = await supabase.from("user_profiles").select("*").eq("user_id", user.id).single()
+      const { data: profile } = await supabase.from("users").select("*").eq("id", user.id).single()
 
       const { data: rewardsData, error: rewardsError } = await supabase.rpc("get_user_available_rewards", {
         user_uuid: user.id,

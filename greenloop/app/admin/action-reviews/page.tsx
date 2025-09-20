@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { CheckCircle, XCircle, AlertCircle, Eye, Search, User, Target, Award, Leaf, Camera } from "lucide-react"
@@ -20,6 +19,8 @@ export default function ActionReviewsPage() {
   const [userActionLogs, setUserActionLogs] = useState<any[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [submissionStatusFilter, setSubmissionStatusFilter] = useState("pending")
+  const [logStatusFilter, setLogStatusFilter] = useState("pending")
   const [isLoading, setIsLoading] = useState(true)
   const [selectedAction, setSelectedAction] = useState<any>(null)
   const [reviewNotes, setReviewNotes] = useState("")
@@ -38,7 +39,6 @@ export default function ActionReviewsPage() {
     try {
       console.log("-> Loading data for admin review page")
 
-      // Load user-submitted actions (pending approval) - these are actions created by users
       const { data: submissions, error: submissionsError } = await supabase
         .from("sustainability_actions")
         .select(`
@@ -57,7 +57,6 @@ export default function ActionReviewsPage() {
           const userIds = submissions.map((s) => s.submitted_by).filter(Boolean)
           const { data: users } = await supabase.from("users").select("*").in("id", userIds)
 
-          // Map users to submissions
           const submissionsWithUsers = submissions.map((submission) => ({
             ...submission,
             users: users?.find((user) => user.id === submission.submitted_by),
@@ -72,7 +71,6 @@ export default function ActionReviewsPage() {
       const { data: actionLogs, error: logsError } = await supabase
         .from("user_actions")
         .select("*")
-        .eq("verification_status", "pending")
         .not("photo_url", "is", null)
         .order("completed_at", { ascending: false })
 
@@ -83,16 +81,12 @@ export default function ActionReviewsPage() {
         console.log("-> Loaded action logs:", actionLogs?.length || 0)
 
         if (actionLogs && actionLogs.length > 0) {
-          // Get unique action IDs and user IDs
           const actionIds = [...new Set(actionLogs.map((log) => log.action_id))]
           const userIds = [...new Set(actionLogs.map((log) => log.user_id))]
 
-          // Fetch related data separately
           const { data: actions } = await supabase.from("sustainability_actions").select("*").in("id", actionIds)
-
           const { data: users } = await supabase.from("users").select("*").in("id", userIds)
 
-          // Map the data together
           const actionLogsWithData = actionLogs.map((log) => ({
             ...log,
             sustainability_actions: actions?.find((action) => action.id === log.action_id),
@@ -315,7 +309,6 @@ export default function ActionReviewsPage() {
         )
       }
     } else {
-      // Action log status
       if (item.verification_status === "approved") {
         return (
           <Badge className="bg-green-100 text-green-800">
@@ -350,6 +343,52 @@ export default function ActionReviewsPage() {
     }
   }
 
+  const getFilteredSubmissions = (status: string) => {
+    return userSubmissions.filter((submission) => {
+      const matchesSearch = submission.title.toLowerCase().includes(searchTerm.toLowerCase())
+      let matchesStatus = false
+
+      switch (status) {
+        case "pending":
+          matchesStatus = !submission.is_active && !submission.rejection_reason
+          break
+        case "approved":
+          matchesStatus = submission.is_active
+          break
+        case "rejected":
+          matchesStatus = !!submission.rejection_reason
+          break
+        default:
+          matchesStatus = true
+      }
+
+      return matchesSearch && matchesStatus
+    })
+  }
+
+  const getFilteredActionLogs = (status: string) => {
+    return userActionLogs.filter((log) => {
+      const matchesSearch = log.sustainability_actions?.title.toLowerCase().includes(searchTerm.toLowerCase())
+      let matchesStatus = false
+
+      switch (status) {
+        case "pending":
+          matchesStatus = log.verification_status === "pending"
+          break
+        case "approved":
+          matchesStatus = log.verification_status === "approved"
+          break
+        case "rejected":
+          matchesStatus = log.verification_status === "rejected"
+          break
+        default:
+          matchesStatus = true
+      }
+
+      return matchesSearch && matchesStatus
+    })
+  }
+
   if (isLoading) {
     return (
       <div className="p-8">
@@ -366,13 +405,11 @@ export default function ActionReviewsPage() {
   return (
     <div className="p-8 overflow-auto">
       <div className="space-y-8">
-        {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-foreground">Action Reviews</h1>
           <p className="text-muted-foreground">Review user-submitted actions and verify completed action logs</p>
         </div>
 
-        {/* Search and Filters */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-col sm:flex-row gap-4">
@@ -385,165 +422,160 @@ export default function ActionReviewsPage() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           </CardContent>
         </Card>
 
-        {/* Tabs for different review types */}
         <Tabs defaultValue="submissions" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="submissions">
               <Target className="h-4 w-4 mr-2" />
-              Action Submissions ({userSubmissions.filter((s) => !s.is_active && !s.rejection_reason).length})
+              Action Submissions ({getFilteredSubmissions("pending").length} pending)
             </TabsTrigger>
             <TabsTrigger value="logs">
               <User className="h-4 w-4 mr-2" />
-              Action Logs ({userActionLogs.filter((l) => l.verification_status === "pending").length})
+              Action Logs ({getFilteredActionLogs("pending").length} pending)
             </TabsTrigger>
           </TabsList>
 
-          {/* User Submissions Tab */}
           <TabsContent value="submissions" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {userSubmissions
-                .filter((submission) => {
-                  const matchesSearch = submission.title.toLowerCase().includes(searchTerm.toLowerCase())
-                  const matchesStatus =
-                    statusFilter === "all" ||
-                    (statusFilter === "pending" && !submission.is_active && !submission.rejection_reason) ||
-                    (statusFilter === "approved" && submission.is_active) ||
-                    (statusFilter === "rejected" && submission.rejection_reason)
-                  return matchesSearch && matchesStatus
-                })
-                .map((submission) => (
-                  <Card key={submission.id} className="relative">
-                    <div className="absolute top-3 right-3">{getStatusBadge(submission, true)}</div>
+            <Tabs value={submissionStatusFilter} onValueChange={setSubmissionStatusFilter}>
+              <TabsList>
+                <TabsTrigger value="pending">Pending ({getFilteredSubmissions("pending").length})</TabsTrigger>
+                <TabsTrigger value="approved">Approved ({getFilteredSubmissions("approved").length})</TabsTrigger>
+                <TabsTrigger value="rejected">Rejected ({getFilteredSubmissions("rejected").length})</TabsTrigger>
+              </TabsList>
 
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-lg pr-20">{submission.title}</CardTitle>
-                      <CardDescription>{submission.description}</CardDescription>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <User className="h-4 w-4" />
-                        <span>By {submission.users?.full_name || submission.users?.email}</span>
-                      </div>
-                    </CardHeader>
+              <TabsContent value={submissionStatusFilter} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {getFilteredSubmissions(submissionStatusFilter).map((submission) => (
+                    <Card key={submission.id} className="relative">
+                      <div className="absolute top-3 right-3">{getStatusBadge(submission, true)}</div>
 
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{submission.action_categories?.name}</Badge>
-                      </div>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg pr-20">{submission.title}</CardTitle>
+                        <CardDescription>{submission.description}</CardDescription>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <User className="h-4 w-4" />
+                          <span>By {submission.users?.full_name || submission.users?.email}</span>
+                        </div>
+                      </CardHeader>
 
-                      {submission.is_active && (
+                      <CardContent className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{submission.action_categories?.name}</Badge>
+                        </div>
+
+                        {submission.is_active && (
+                          <div className="flex items-center gap-4 text-sm">
+                            <div className="flex items-center gap-1">
+                              <Award className="h-4 w-4 text-primary" />
+                              <span>+{submission.points_value} pts</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Leaf className="h-4 w-4 text-accent" />
+                              <span>{submission.co2_impact}kg CO₂</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {submission.rejection_reason && (
+                          <Alert variant="destructive">
+                            <AlertDescription className="text-sm">
+                              <strong>Rejected:</strong> {submission.rejection_reason}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        <Button
+                          className="w-full bg-transparent"
+                          variant="outline"
+                          onClick={() => openReviewModal(submission, true)}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Review Action
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+
+          <TabsContent value="logs" className="space-y-6">
+            <Tabs value={logStatusFilter} onValueChange={setLogStatusFilter}>
+              <TabsList>
+                <TabsTrigger value="pending">Pending ({getFilteredActionLogs("pending").length})</TabsTrigger>
+                <TabsTrigger value="approved">Approved ({getFilteredActionLogs("approved").length})</TabsTrigger>
+                <TabsTrigger value="rejected">Rejected ({getFilteredActionLogs("rejected").length})</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value={logStatusFilter} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {getFilteredActionLogs(logStatusFilter).map((log) => (
+                    <Card key={log.id} className="relative">
+                      <div className="absolute top-3 right-3">{getStatusBadge(log, false)}</div>
+
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg pr-20">{log.sustainability_actions?.title}</CardTitle>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <User className="h-4 w-4" />
+                          <span>By {log.users?.full_name || log.users?.email}</span>
+                        </div>
+                      </CardHeader>
+
+                      <CardContent className="space-y-4">
                         <div className="flex items-center gap-4 text-sm">
                           <div className="flex items-center gap-1">
                             <Award className="h-4 w-4 text-primary" />
-                            <span>+{submission.points_value} pts</span>
+                            <span>+{log.points_earned} pts</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <Leaf className="h-4 w-4 text-accent" />
-                            <span>{submission.co2_impact}kg CO₂</span>
+                            <span>{log.co2_saved}kg CO₂</span>
                           </div>
                         </div>
-                      )}
 
-                      {submission.rejection_reason && (
-                        <Alert variant="destructive">
-                          <AlertDescription className="text-sm">
-                            <strong>Rejected:</strong> {submission.rejection_reason}
-                          </AlertDescription>
-                        </Alert>
-                      )}
+                        {log.photo_url && (
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Camera className="h-4 w-4" />
+                            <span>Photo provided</span>
+                          </div>
+                        )}
 
-                      <Button
-                        className="w-full bg-transparent"
-                        variant="outline"
-                        onClick={() => openReviewModal(submission, true)}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        Review Action
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-            </div>
-          </TabsContent>
+                        {log.notes && (
+                          <div className="p-3 bg-muted rounded-lg">
+                            <p className="text-sm">{log.notes}</p>
+                          </div>
+                        )}
 
-          {/* Action Logs Tab */}
-          <TabsContent value="logs" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {userActionLogs
-                .filter((log) => {
-                  const matchesSearch = log.sustainability_actions?.title
-                    .toLowerCase()
-                    .includes(searchTerm.toLowerCase())
-                  const matchesStatus = statusFilter === "all" || statusFilter === log.verification_status
-                  return matchesSearch && matchesStatus
-                })
-                .map((log) => (
-                  <Card key={log.id} className="relative">
-                    <div className="absolute top-3 right-3">{getStatusBadge(log, false)}</div>
+                        {log.rejection_reason && (
+                          <Alert variant="destructive">
+                            <AlertDescription className="text-sm">
+                              <strong>Rejected:</strong> {log.rejection_reason}
+                            </AlertDescription>
+                          </Alert>
+                        )}
 
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-lg pr-20">{log.sustainability_actions?.title}</CardTitle>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <User className="h-4 w-4" />
-                        <span>By {log.users?.full_name || log.users?.email}</span>
-                      </div>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center gap-4 text-sm">
-                        <div className="flex items-center gap-1">
-                          <Award className="h-4 w-4 text-primary" />
-                          <span>+{log.points_earned} pts</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Leaf className="h-4 w-4 text-accent" />
-                          <span>{log.co2_saved}kg CO₂</span>
-                        </div>
-                      </div>
-
-                      {log.photo_url && (
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Camera className="h-4 w-4" />
-                          <span>Photo provided</span>
-                        </div>
-                      )}
-
-                      {log.notes && (
-                        <div className="p-3 bg-muted rounded-lg">
-                          <p className="text-sm">{log.notes}</p>
-                        </div>
-                      )}
-
-                      <Button
-                        className="w-full bg-transparent"
-                        variant="outline"
-                        onClick={() => openReviewModal(log, false)}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        Review Log
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-            </div>
+                        <Button
+                          className="w-full bg-transparent"
+                          variant="outline"
+                          onClick={() => openReviewModal(log, false)}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Review Log
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
           </TabsContent>
         </Tabs>
       </div>
 
-      {/* Review Modal */}
       <Dialog open={!!selectedAction} onOpenChange={() => setSelectedAction(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -557,7 +589,6 @@ export default function ActionReviewsPage() {
 
           {selectedAction && (
             <div className="space-y-6">
-              {/* Action Details */}
               <div className="space-y-4">
                 <div>
                   <h3 className="font-semibold">
@@ -596,7 +627,6 @@ export default function ActionReviewsPage() {
                 )}
               </div>
 
-              {/* Review Form */}
               {selectedAction.isSubmission && !selectedAction.is_active && !selectedAction.rejection_reason && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -636,7 +666,6 @@ export default function ActionReviewsPage() {
                 />
               </div>
 
-              {/* Action Buttons */}
               <div className="flex justify-end gap-3">
                 <Button variant="outline" onClick={() => setSelectedAction(null)}>
                   Cancel
