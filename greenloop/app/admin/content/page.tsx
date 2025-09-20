@@ -28,6 +28,18 @@ interface ContentItem {
   created_at?: string
   updated_at?: string
   created_by?: string
+  submitter_name?: string
+  submitter_email?: string
+  is_user_created?: boolean
+  first_name?: string
+  last_name?: string
+}
+
+interface UserData {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  email: string
 }
 
 export default function AdminContentPage() {
@@ -35,12 +47,17 @@ export default function AdminContentPage() {
   const [announcements, setAnnouncements] = useState<ContentItem[]>([])
   const [educationalContent, setEducationalContent] = useState<ContentItem[]>([])
   const [filteredActions, setFilteredActions] = useState<ContentItem[]>([])
+  const [adminActions, setAdminActions] = useState<ContentItem[]>([])
+  const [userActions, setUserActions] = useState<ContentItem[]>([])
+  const [filteredAdminActions, setFilteredAdminActions] = useState<ContentItem[]>([])
+  const [filteredUserActions, setFilteredUserActions] = useState<ContentItem[]>([])
   const [loading, setLoading] = useState(true)
   const [userProfile, setUserProfile] = useState<any>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null)
   const [modalMode, setModalMode] = useState<"create" | "edit" | "view">("create")
   const [activeTab, setActiveTab] = useState("actions")
+  const [activeActionTab, setActiveActionTab] = useState("admin")
 
   const supabase = createClient()
 
@@ -75,20 +92,61 @@ export default function AdminContentPage() {
         `)
         .order("created_at", { ascending: false })
 
+      console.log("[v0] Raw actions data:", actionsData)
+
+      const userSubmittedActions = actionsData?.filter((action) => action.is_user_created && action.submitted_by) || []
+      const userIds = [...new Set(userSubmittedActions.map((action) => action.submitted_by))]
+
+      let usersData: UserData[] = []
+      if (userIds.length > 0) {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("id, first_name, last_name, email")
+          .in("id", userIds)
+        usersData = (userData as UserData[]) || []
+      }
+
       const transformedActions =
-        actionsData?.map((action) => ({
-          ...action,
-          type: "action" as const,
-          category: action.action_categories?.name || "Unknown",
-          status: action.is_active ? ("published" as const) : ("draft" as const),
-          points: action.points_value,
-          tags: action.tags || [],
-        })) || []
+        actionsData?.map((action) => {
+          let submitterName = undefined
+          let submitterEmail = undefined
+
+          if (action.is_user_created && action.submitted_by) {
+            const user = usersData.find((u) => u.id === action.submitted_by)
+            if (user) {
+              submitterName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email
+              submitterEmail = user.email
+            }
+          }
+
+          return {
+            ...action,
+            type: "action" as const,
+            category: action.action_categories?.name || "Unknown",
+            status: action.is_active ? ("published" as const) : ("draft" as const),
+            points: action.points_value,
+            tags: action.tags || [],
+            submitter_name: submitterName,
+            submitter_email: submitterEmail,
+          }
+        }) || []
+
+      console.log("[v0] Transformed actions:", transformedActions)
 
       setSustainabilityActions(transformedActions)
       setFilteredActions(transformedActions)
 
-      // Get announcements from content_items table
+      const adminCreatedActions = transformedActions.filter((action) => !action.is_user_created)
+      const userCreatedActions = transformedActions.filter((action) => action.is_user_created === true)
+
+      console.log("[v0] Admin actions:", adminCreatedActions)
+      console.log("[v0] User actions:", userCreatedActions)
+
+      setAdminActions(adminCreatedActions)
+      setUserActions(userCreatedActions)
+      setFilteredAdminActions(adminCreatedActions)
+      setFilteredUserActions(userCreatedActions)
+
       const { data: announcementsData } = await supabase
         .from("content_items")
         .select("*")
@@ -97,7 +155,6 @@ export default function AdminContentPage() {
 
       setAnnouncements(announcementsData || [])
 
-      // Get educational content from content_items table
       const { data: educationalData } = await supabase
         .from("content_items")
         .select("*")
@@ -135,7 +192,6 @@ export default function AdminContentPage() {
   }
 
   const handleSaveContent = async (contentData: ContentItem) => {
-    // Just refresh the data after modal completes its save operation
     loadData()
     setModalOpen(false)
   }
@@ -161,7 +217,7 @@ export default function AdminContentPage() {
             body: JSON.stringify({
               title: content.title,
               description: content.description || content.content,
-              category_id: content.category, // This will need to be resolved to ID
+              category_id: content.category,
               points_value: content.points || content.points_value,
               co2_impact: content.co2_impact,
               is_active: isActive,
@@ -212,10 +268,10 @@ export default function AdminContentPage() {
     }
   }
 
-  const handleExport = () => {
+  const handleExportAdmin = () => {
     const csvContent = [
       ["Title", "Type", "Category", "Status", "Points", "CO2 Impact", "Created"].join(","),
-      ...filteredActions.map((item) =>
+      ...filteredAdminActions.map((item) =>
         [
           `"${item.title}"`,
           item.type,
@@ -232,9 +288,43 @@ export default function AdminContentPage() {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `content-export-${new Date().toISOString().split("T")[0]}.csv`
+    a.download = `admin-actions-export-${new Date().toISOString().split("T")[0]}.csv`
     a.click()
     window.URL.revokeObjectURL(url)
+  }
+
+  const handleExportUser = () => {
+    const csvContent = [
+      ["Title", "Type", "Category", "Status", "Points", "CO2 Impact", "Submitted By", "Created"].join(","),
+      ...filteredUserActions.map((item) =>
+        [
+          `"${item.title}"`,
+          item.type,
+          item.category,
+          item.status,
+          item.points || 0,
+          item.co2_impact || 0,
+          `"${item.submitter_name || "Unknown"}"`,
+          item.created_at ? new Date(item.created_at).toLocaleDateString() : "N/A",
+        ].join(","),
+      ),
+    ].join("\n")
+
+    const blob = new Blob([csvContent], { type: "text/csv" })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `user-actions-export-${new Date().toISOString().split("T")[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const handleAdminActionsFilter = (filtered: ContentItem[]) => {
+    setFilteredAdminActions(filtered)
+  }
+
+  const handleUserActionsFilter = (filtered: ContentItem[]) => {
+    setFilteredUserActions(filtered)
   }
 
   const filterOptions = [
@@ -246,7 +336,7 @@ export default function AdminContentPage() {
     {
       key: "status",
       label: "Status",
-      values: ["published", "draft", "archived"], // Added archived to filter options
+      values: ["published", "draft", "archived"],
     },
   ]
 
@@ -291,95 +381,199 @@ export default function AdminContentPage() {
 
             {/* Sustainability Actions Tab */}
             <TabsContent value="actions" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Search Sustainability Actions</CardTitle>
-                  <CardDescription>
-                    Find and filter sustainability actions by title, category, or status
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <InteractiveSearch
-                    data={sustainabilityActions}
-                    onFilteredData={setFilteredActions}
-                    searchFields={["title", "description", "category"]}
-                    filterOptions={filterOptions}
-                    placeholder="Search by title, description, or category..."
-                    onExport={handleExport}
-                  />
-                </CardContent>
-              </Card>
+              {/* Nested Tabs for Admin vs User Actions */}
+              <Tabs value={activeActionTab} onValueChange={setActiveActionTab} className="space-y-6">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="admin">Admin Created ({adminActions.length})</TabsTrigger>
+                  <TabsTrigger value="user">User Submitted ({userActions.length})</TabsTrigger>
+                </TabsList>
 
-              {/* Actions Table */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Sustainability Actions ({filteredActions.length})</CardTitle>
-                  <CardDescription>Manage available sustainability actions for users</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Action</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Points</TableHead>
-                        <TableHead>CO₂ Impact</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Created</TableHead>
-                        <TableHead className="w-[100px]">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredActions.map((action) => (
-                        <TableRow key={action.id}>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{action.title}</p>
-                              <p className="text-sm text-muted-foreground">{action.description || action.content}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{action.category}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-medium">{action.points || action.points_value}</div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-medium">{action.co2_impact}kg</div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                action.status === "published" || action.is_active ? "default" : "secondary" // Simplified badge logic - only draft or published
-                              }
-                            >
-                              {action.status === "published" || (action.is_active && !action.status)
-                                ? "Published"
-                                : "Draft"}{" "}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                              <Calendar className="h-3 w-3" />
-                              {action.created_at ? new Date(action.created_at).toLocaleDateString() : "N/A"}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <ActionDropdown
-                              type="content"
-                              onView={() => handleViewContent(action)}
-                              onEdit={() => handleEditContent(action)}
-                              onToggleStatus={() => handleContentAction("toggle-status", action)}
-                              onDelete={() => handleContentAction("delete", action)}
-                              isActive={action.status === "published" || action.is_active}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                {/* Admin Created Actions */}
+                <TabsContent value="admin" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Search Admin Actions</CardTitle>
+                      <CardDescription>Find and filter admin-created sustainability actions</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <InteractiveSearch
+                        data={adminActions}
+                        onFilteredData={handleAdminActionsFilter}
+                        searchFields={["title", "description", "category"]}
+                        filterOptions={filterOptions}
+                        placeholder="Search admin actions..."
+                        onExport={handleExportAdmin}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Admin Created Actions ({filteredAdminActions.length})</CardTitle>
+                      <CardDescription>Default sustainability actions created by administrators</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Action</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead>Points</TableHead>
+                            <TableHead>CO₂ Impact</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Created</TableHead>
+                            <TableHead className="w-[100px]">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredAdminActions.map((action) => (
+                            <TableRow key={action.id}>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium">{action.title}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {action.description || action.content}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{action.category}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium">{action.points || action.points_value}</div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium">{action.co2_impact}kg</div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={action.status === "published" || action.is_active ? "default" : "secondary"}
+                                >
+                                  {action.status === "published" || (action.is_active && !action.status)
+                                    ? "Published"
+                                    : "Draft"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                  <Calendar className="h-3 w-3" />
+                                  {action.created_at ? new Date(action.created_at).toLocaleDateString() : "N/A"}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <ActionDropdown
+                                  type="content"
+                                  onView={() => handleViewContent(action)}
+                                  onEdit={() => handleEditContent(action)}
+                                  onToggleStatus={() => handleContentAction("toggle-status", action)}
+                                  onDelete={() => handleContentAction("delete", action)}
+                                  isActive={action.status === "published" || action.is_active}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* User Submitted Actions */}
+                <TabsContent value="user" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Search User Submissions</CardTitle>
+                      <CardDescription>Find and filter user-submitted sustainability actions</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <InteractiveSearch
+                        data={userActions}
+                        onFilteredData={handleUserActionsFilter}
+                        searchFields={["title", "description", "category"]}
+                        filterOptions={filterOptions}
+                        placeholder="Search user submissions..."
+                        onExport={handleExportUser}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>User Submitted Actions ({filteredUserActions.length})</CardTitle>
+                      <CardDescription>Sustainability actions submitted by platform users</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Action</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead>Points</TableHead>
+                            <TableHead>CO₂ Impact</TableHead>
+                            <TableHead>Submitted By</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Created</TableHead>
+                            <TableHead className="w-[100px]">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredUserActions.map((action) => (
+                            <TableRow key={action.id}>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium">{action.title}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {action.description || action.content}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{action.category}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium">{action.points || action.points_value}</div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium">{action.co2_impact}kg</div>
+                              </TableCell>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium text-sm">{action.submitter_name || "Unknown"}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={action.status === "published" || action.is_active ? "default" : "secondary"}
+                                >
+                                  {action.status === "published" || (action.is_active && !action.status)
+                                    ? "Published"
+                                    : "Draft"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                  <Calendar className="h-3 w-3" />
+                                  {action.created_at ? new Date(action.created_at).toLocaleDateString() : "N/A"}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <ActionDropdown
+                                  type="content"
+                                  onView={() => handleViewContent(action)}
+                                  onEdit={() => handleEditContent(action)}
+                                  onToggleStatus={() => handleContentAction("toggle-status", action)}
+                                  onDelete={() => handleContentAction("delete", action)}
+                                  isActive={action.status === "published" || action.is_active}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             </TabsContent>
 
             {/* Announcements Tab */}
@@ -505,7 +699,7 @@ export default function AdminContentPage() {
         onSave={handleSaveContent}
         content={selectedContent}
         mode={modalMode}
-        currentAdminId={userProfile?.id} // Pass current admin ID to modal
+        currentAdminId={userProfile?.id}
       />
     </div>
   )
