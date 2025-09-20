@@ -1,5 +1,5 @@
 
-\restrict jEBBCMHPKLdb0X8qeTlc0FPzS1OgJUgE94gCFaRTR2DsKymGTQ1NmgFLXQielK8
+\restrict XpziJFlRLtmRfp4h7FYZuuz89C00U75yatE6kelqGtB6L7kDYnH8lHwibIwAqnX
 
 
 SET statement_timeout = 0;
@@ -1344,40 +1344,51 @@ CREATE OR REPLACE FUNCTION "public"."notify_action_status_change"() RETURNS "tri
     AS $$
 DECLARE
     action_title TEXT;
+    is_auto_logged BOOLEAN := FALSE;
 BEGIN
     -- Only process status changes to approved or rejected
     IF NEW.verification_status IN ('approved', 'rejected') AND 
        (OLD IS NULL OR OLD.verification_status != NEW.verification_status) THEN
         
-        -- Get the action title
-        SELECT title INTO action_title 
-        FROM sustainability_actions 
-        WHERE id = NEW.action_id;
+        -- Check if this is an auto-logged action (from personal action approval)
+        -- Auto-logged actions have notes = 'Auto-logged upon action approval'
+        IF NEW.notes = 'Auto-logged upon action approval' THEN
+            is_auto_logged := TRUE;
+        END IF;
         
-        -- Send appropriate notification
-        IF NEW.verification_status = 'approved' THEN
-            PERFORM create_notification_if_enabled(
-                NEW.user_id,
-                'action_status',
-                'Action Approved! ✅',
-                'Your action ''' || COALESCE(action_title, 'Sustainability Action') || ''' has been approved! +' || 
-                COALESCE(NEW.points_earned, 0) || ' points earned' ||
-                CASE WHEN NEW.co2_saved > 0 THEN ' • ' || NEW.co2_saved || ' kg CO2 impact' ELSE '' END,
-                '/actions',
-                'action',
-                NEW.id::TEXT
-            );
-        ELSIF NEW.verification_status = 'rejected' THEN
-            PERFORM create_notification_if_enabled(
-                NEW.user_id,
-                'action_status',
-                'Action Rejected ❌',
-                'Your action ''' || COALESCE(action_title, 'Sustainability Action') || ''' was rejected. Reason: ' || 
-                COALESCE(NEW.notes, 'No reason provided'),
-                '/actions',
-                'action',
-                NEW.id::TEXT
-            );
+        -- Skip notifications for auto-logged actions since they already get 
+        -- notifications from trigger_notify_user_action_submission_approved
+        IF NOT is_auto_logged THEN
+            -- Get the action title
+            SELECT title INTO action_title 
+            FROM sustainability_actions 
+            WHERE id = NEW.action_id;
+            
+            -- Send appropriate notification
+            IF NEW.verification_status = 'approved' THEN
+                PERFORM create_notification_if_enabled(
+                    NEW.user_id,
+                    'action_status',
+                    'Action Approved! ✅',
+                    'Your action ''' || COALESCE(action_title, 'Sustainability Action') || ''' has been approved! +' || 
+                    COALESCE(NEW.points_earned, 0) || ' points earned' ||
+                    CASE WHEN NEW.co2_saved > 0 THEN ' • ' || NEW.co2_saved || ' kg CO2 impact' ELSE '' END,
+                    '/actions',
+                    'action',
+                    NEW.id::TEXT
+                );
+            ELSIF NEW.verification_status = 'rejected' THEN
+                PERFORM create_notification_if_enabled(
+                    NEW.user_id,
+                    'action_status',
+                    'Action Rejected ❌',
+                    'Your action ''' || COALESCE(action_title, 'Sustainability Action') || ''' was rejected. Reason: ' || 
+                    COALESCE(NEW.notes, 'No reason provided'),
+                    '/actions',
+                    'action',
+                    NEW.id::TEXT
+                );
+            END IF;
         END IF;
     END IF;
     
@@ -1535,11 +1546,12 @@ BEGIN
     IF NEW.is_active = TRUE AND NEW.is_user_created = TRUE AND NEW.submitted_by IS NOT NULL AND
        (OLD IS NULL OR OLD.is_active != TRUE) THEN
         
+        -- Removed "and is now available for everyone" from notification message
         PERFORM create_notification_if_enabled(
             NEW.submitted_by,
             'action_status',
             'Action Approved! ✅',
-            'Your submitted action ''' || NEW.title || ''' has been approved and is now available for everyone! +' || 
+            'Your submitted action ''' || NEW.title || ''' has been approved! +' || 
             COALESCE(NEW.points_value, 0) || ' points earned' ||
             CASE WHEN NEW.co2_impact > 0 THEN ' • ' || NEW.co2_impact || ' kg CO2 impact' ELSE '' END,
             '/actions',
@@ -5811,6 +5823,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict jEBBCMHPKLdb0X8qeTlc0FPzS1OgJUgE94gCFaRTR2DsKymGTQ1NmgFLXQielK8
+\unrestrict XpziJFlRLtmRfp4h7FYZuuz89C00U75yatE6kelqGtB6L7kDYnH8lHwibIwAqnX
 
 RESET ALL;
