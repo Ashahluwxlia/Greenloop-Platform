@@ -157,16 +157,34 @@ export default function ActionReviewsPage() {
   }
 
   const handleRejectSubmission = async (action: any) => {
+    if (!reviewNotes.trim()) {
+      toast({
+        title: "Error",
+        description: "Please provide a reason for rejection",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsReviewing(true)
     try {
-      const { error } = await supabase
-        .from("sustainability_actions")
-        .update({
-          rejection_reason: reviewNotes,
-        })
-        .eq("id", action.id)
+      const response = await fetch("/api/admin/actions/reject", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          actionId: action.id,
+          rejectionReason: reviewNotes,
+          isSubmission: true,
+        }),
+      })
 
-      if (error) throw error
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to reject action")
+      }
 
       toast({
         title: "Success",
@@ -225,19 +243,34 @@ export default function ActionReviewsPage() {
   }
 
   const handleRejectActionLog = async (actionLog: any) => {
+    if (!reviewNotes.trim()) {
+      toast({
+        title: "Error",
+        description: "Please provide a reason for rejection",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsReviewing(true)
     try {
-      const { error } = await supabase
-        .from("user_actions")
-        .update({
-          verification_status: "rejected",
-          notes: reviewNotes,
-          verified_by: (await supabase.auth.getUser()).data.user?.id,
-          verified_at: new Date().toISOString(),
-        })
-        .eq("id", actionLog.id)
+      const response = await fetch("/api/admin/actions/reject", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          actionLogId: actionLog.id,
+          rejectionReason: reviewNotes,
+          isSubmission: false,
+        }),
+      })
 
-      if (error) throw error
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to reject action log")
+      }
 
       toast({
         title: "Success",
@@ -593,16 +626,10 @@ export default function ActionReviewsPage() {
               )}
 
               <div>
-                <Label htmlFor="review-notes">
-                  {selectedAction.isSubmission ? "Rejection Reason (if rejecting)" : "Review Notes"}
-                </Label>
+                <Label htmlFor="review-notes">Rejection Reason (required)</Label>
                 <Textarea
                   id="review-notes"
-                  placeholder={
-                    selectedAction.isSubmission
-                      ? "Provide reason for rejection (optional for approval)"
-                      : "Add notes about your review decision"
-                  }
+                  placeholder="Provide reason for rejection (required for rejection)"
                   value={reviewNotes}
                   onChange={(e) => setReviewNotes(e.target.value)}
                   rows={3}
