@@ -148,25 +148,34 @@ export default function AdminRewardsPage() {
     try {
       setUpdating(claimId)
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) return
-
-      const updateData: any = {
-        claim_status: newStatus,
-        admin_notes: adminNotes || null,
-        updated_at: new Date().toISOString(),
+      let endpoint = ""
+      switch (newStatus) {
+        case "approved":
+          endpoint = "/api/admin/rewards/approve"
+          break
+        case "rejected":
+          endpoint = "/api/admin/rewards/reject"
+          break
+        case "delivered":
+          endpoint = "/api/admin/rewards/deliver"
+          break
       }
 
-      if (newStatus === "approved" || newStatus === "rejected") {
-        updateData.approved_at = new Date().toISOString()
-        updateData.approved_by = user.id
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          claimId,
+          adminNotes: adminNotes || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update claim status")
       }
-
-      const { error } = await supabase.from("user_level_rewards").update(updateData).eq("id", claimId)
-
-      if (error) throw error
 
       toast({
         title: "Status Updated",
@@ -179,7 +188,7 @@ export default function AdminRewardsPage() {
       console.error("Error updating claim status:", error)
       toast({
         title: "Error",
-        description: "Failed to update claim status. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to update claim status. Please try again.",
         variant: "destructive",
       })
     } finally {

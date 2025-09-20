@@ -8,21 +8,36 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { SettingsIcon, Bell, Shield, Trash2, Download, AlertCircle, CheckCircle, Eye, Clock } from "lucide-react"
+import {
+  SettingsIcon,
+  Bell,
+  Trash2,
+  Download,
+  AlertCircle,
+  CheckCircle,
+  Target,
+  Users,
+  Megaphone,
+  GraduationCap,
+  Gift,
+  BarChart3,
+  Award,
+} from "lucide-react"
 
 export default function SettingsPage() {
   const [user, setUser] = useState<any>(null)
   const [preferences, setPreferences] = useState({
-    email_notifications: true,
-    weekly_digest: true,
+    action_status: true,
+    challenge_progress: true,
+    team_updates: true,
+    announcements: true,
+    educational_content: true,
+    reward_status: true,
     achievement_alerts: true,
     leaderboard_updates: false,
-    team_invitations: true,
     profile_visibility: "public",
     leaderboard_participation: true,
     analytics_sharing: true,
@@ -233,10 +248,9 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 w-full">
             {/* Settings Form */}
             <div className="xl:col-span-3 space-y-6">
-              <Tabs defaultValue="privacy" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+              <Tabs defaultValue="notifications" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="notifications">Notifications</TabsTrigger>
-                  <TabsTrigger value="privacy">Privacy & Security</TabsTrigger>
                   <TabsTrigger value="data">Data Management</TabsTrigger>
                 </TabsList>
 
@@ -247,146 +261,119 @@ export default function SettingsPage() {
                         <Bell className="h-5 w-5" />
                         Notification Preferences
                       </CardTitle>
-                      <CardDescription>Choose what notifications you'd like to receive</CardDescription>
-                      <Alert className="border-blue-200 bg-blue-50">
-                        <Clock className="h-4 w-4 text-blue-600" />
-                        <AlertDescription className="text-blue-800">
-                          <strong>Coming Soon!</strong> Notification preferences are currently in development.
-                        </AlertDescription>
-                      </Alert>
+                      <CardDescription>Choose what notifications you'd like to receive in-app</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                      <div className="space-y-4 opacity-60">
+                      <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Email Notifications</Label>
-                            <p className="text-sm text-muted-foreground">Receive updates via email</p>
-                          </div>
-                          <Switch disabled checked={true} />
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Weekly Digest</Label>
+                            <Label className="flex items-center gap-2">
+                              <Target className="h-4 w-4 text-blue-600" />
+                              Action Status Updates
+                            </Label>
                             <p className="text-sm text-muted-foreground">
-                              Weekly summary of your sustainability progress
+                              Get notified when your actions are approved or rejected
                             </p>
                           </div>
-                          <Switch disabled checked={true} />
+                          <Switch
+                            checked={preferences.action_status}
+                            onCheckedChange={(checked) => handleSettingChange("action_status", checked)}
+                          />
                         </div>
 
                         <div className="flex items-center justify-between">
                           <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Achievement Alerts</Label>
+                            <Label className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-green-600" />
+                              Team Updates
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified when you're added to teams or team achievements
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.team_updates}
+                            onCheckedChange={(checked) => handleSettingChange("team_updates", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <Megaphone className="h-4 w-4 text-orange-600" />
+                              Announcements
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Receive important announcements from administrators
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.announcements}
+                            onCheckedChange={(checked) => handleSettingChange("announcements", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <GraduationCap className="h-4 w-4 text-indigo-600" />
+                              Educational Content
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified about new educational content and sustainability tips
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.educational_content}
+                            onCheckedChange={(checked) => handleSettingChange("educational_content", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <Gift className="h-4 w-4 text-pink-600" />
+                              Reward Status Updates
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                              Notifications about reward claims and delivery status
+                            </p>
+                          </div>
+                          <Switch
+                            checked={preferences.reward_status}
+                            onCheckedChange={(checked) => handleSettingChange("reward_status", checked)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                              <Award className="h-4 w-4 text-emerald-600" />
+                              Achievement Alerts
+                            </Label>
                             <p className="text-sm text-muted-foreground">
                               Get notified when you earn badges or reach milestones
                             </p>
                           </div>
-                          <Switch disabled checked={true} />
+                          <Switch
+                            checked={preferences.achievement_alerts}
+                            onCheckedChange={(checked) => handleSettingChange("achievement_alerts", checked)}
+                          />
                         </div>
 
                         <div className="flex items-center justify-between">
                           <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Leaderboard Updates</Label>
+                            <Label className="flex items-center gap-2">
+                              <BarChart3 className="h-4 w-4 text-yellow-600" />
+                              Leaderboard Updates
+                            </Label>
                             <p className="text-sm text-muted-foreground">Notifications about your ranking changes</p>
                           </div>
-                          <Switch disabled checked={false} />
+                          <Switch
+                            checked={preferences.leaderboard_updates}
+                            onCheckedChange={(checked) => handleSettingChange("leaderboard_updates", checked)}
+                          />
                         </div>
-
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <Label className="text-muted-foreground">Team Invitations</Label>
-                            <p className="text-sm text-muted-foreground">
-                              Receive invitations to join teams and challenges
-                            </p>
-                          </div>
-                          <Switch disabled checked={true} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="privacy" className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Shield className="h-5 w-5" />
-                        Privacy & Security Controls
-                      </CardTitle>
-                      <CardDescription>Control your privacy and data sharing preferences</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Profile Visibility</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Control who can see your profile and achievements
-                          </p>
-                          {preferences.profile_visibility === "private" && (
-                            <p className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                              Your profile is currently private and hidden from leaderboards
-                            </p>
-                          )}
-                        </div>
-                        <Select
-                          value={preferences.profile_visibility}
-                          onValueChange={(value) => handleSettingChange("profile_visibility", value)}
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="public">
-                              <div className="flex items-center gap-2">
-                                <Eye className="h-4 w-4" />
-                                Public
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="private">
-                              <div className="flex items-center gap-2">
-                                <Shield className="h-4 w-4" />
-                                Private
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Leaderboard Participation</Label>
-                          <p className="text-sm text-muted-foreground">Include your data in company leaderboards</p>
-                          {!preferences.leaderboard_participation && (
-                            <p className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                              You are currently excluded from all leaderboards
-                            </p>
-                          )}
-                        </div>
-                        <Switch
-                          checked={preferences.leaderboard_participation}
-                          onCheckedChange={(checked) => handleSettingChange("leaderboard_participation", checked)}
-                          disabled={preferences.profile_visibility === "private"}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Analytics Sharing</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Share anonymized data for sustainability insights
-                          </p>
-                          {!preferences.analytics_sharing && (
-                            <p className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                              Your data is not being shared for analytics
-                            </p>
-                          )}
-                        </div>
-                        <Switch
-                          checked={preferences.analytics_sharing}
-                          onCheckedChange={(checked) => handleSettingChange("analytics_sharing", checked)}
-                          disabled={preferences.profile_visibility === "private"}
-                        />
                       </div>
                     </CardContent>
                   </Card>
@@ -415,36 +402,21 @@ export default function SettingsPage() {
                       <Separator />
 
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between p-4 bg-destructive/5 border border-destructive/20 rounded-lg">
-                          <div>
-                            <h4 className="font-medium text-destructive">Delete Account</h4>
-                            <p className="text-sm text-muted-foreground">
-                              Permanently delete your account and all associated data
-                            </p>
+                        <div className="p-6 bg-destructive/5 border border-destructive/20 rounded-lg text-center">
+                          <div className="space-y-3">
+                            <Trash2 className="h-8 w-8 text-destructive mx-auto" />
+                            <div>
+                              <h4 className="font-bold text-lg text-destructive mb-2">Delete Account</h4>
+                              <p className="text-base font-semibold text-foreground">
+                                To delete your account, please contact your administrator.
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-2">
+                                Account deletion requires administrative approval and cannot be processed through this
+                                interface.
+                              </p>
+                            </div>
                           </div>
-                          <Button variant="destructive" onClick={handleDeleteAccount} disabled={isDeleting}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            {isDeleting ? "Deleting..." : showDeleteConfirm ? "Confirm Delete" : "Delete"}
-                          </Button>
                         </div>
-
-                        {showDeleteConfirm && (
-                          <div className="space-y-4">
-                            <Alert variant="destructive">
-                              <AlertCircle className="h-4 w-4" />
-                              <AlertDescription>
-                                This action cannot be undone. All your sustainability data, achievements, and progress
-                                will be permanently deleted. Type "DELETE MY ACCOUNT" below to confirm.
-                              </AlertDescription>
-                            </Alert>
-                            <Input
-                              placeholder="Type DELETE MY ACCOUNT to confirm"
-                              value={deleteConfirmText}
-                              onChange={(e) => setDeleteConfirmText(e.target.value)}
-                              className="border-destructive focus:border-destructive"
-                            />
-                          </div>
-                        )}
                       </div>
                     </CardContent>
                   </Card>

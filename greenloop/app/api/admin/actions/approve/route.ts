@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
         .eq("id", actionId)
 
       if (updateError) {
+        console.error("Failed to update action:", updateError)
         return createErrorResponse({
           message: "Failed to approve action",
           code: "DATABASE_ERROR",
@@ -59,62 +60,96 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Auto-log the action for the submitter
       const adminSupabase = createAdminClient()
 
-      const { data: userActionLog, error: logError } = await adminSupabase
-        .from("user_actions")
-        .insert({
-          user_id: action.submitted_by,
-          action_id: actionId,
-          points_earned: pointsValue,
-          co2_saved: co2Impact,
-          verification_status: "approved",
-          notes: "Auto-logged upon action approval",
-          verified_by: user.id,
-          verified_at: new Date().toISOString(),
-        })
-        .select()
-        .single()
+      try {
+        const { data: userActionLog, error: logError } = await adminSupabase
+          .from("user_actions")
+          .insert({
+            user_id: action.submitted_by,
+            action_id: actionId,
+            points_earned: pointsValue,
+            co2_saved: co2Impact,
+            verification_status: "approved",
+            notes: "Auto-logged upon action approval",
+            verified_by: user.id,
+            verified_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+          })
+          .select()
+          .single()
 
-      if (logError) {
+        if (logError) {
+          console.error("Auto-log error:", logError)
+          return createErrorResponse({
+            message: "Failed to auto-log action for submitter",
+            code: "DATABASE_ERROR",
+            status: 500,
+          })
+        }
+
+        const { data: userProfile, error: profileError } = await adminSupabase
+          .from("users")
+          .select("points, total_co2_saved")
+          .eq("id", action.submitted_by)
+          .single()
+
+        if (profileError) {
+          console.error("Failed to fetch user profile:", profileError)
+          return createErrorResponse({
+            message: "Failed to fetch user profile",
+            code: "DATABASE_ERROR",
+            status: 500,
+          })
+        }
+
+        if (userProfile) {
+          const { error: pointsUpdateError } = await adminSupabase
+            .from("users")
+            .update({
+              points: userProfile.points + pointsValue,
+            })
+            .eq("id", action.submitted_by)
+
+          if (pointsUpdateError) {
+            console.error("Failed to update user points:", pointsUpdateError)
+            return createErrorResponse({
+              message: "Failed to update user points",
+              code: "DATABASE_ERROR",
+              status: 500,
+            })
+          }
+
+          // Create points transaction
+          const { error: transactionError } = await adminSupabase.from("point_transactions").insert({
+            user_id: action.submitted_by,
+            points: pointsValue,
+            transaction_type: "earned",
+            reference_type: "action",
+            reference_id: userActionLog.id,
+            description: `Completed: ${action.title}`,
+          })
+
+          if (transactionError) {
+            console.error("Failed to create points transaction:", transactionError)
+            // Don't fail the entire request for transaction error
+          }
+        }
+
+        // The trigger_notify_action_status_change will fire when user_actions is inserted with verification_status = 'approved'
+
+        return NextResponse.json({
+          success: true,
+          message: "Action approved and auto-logged for submitter",
+        })
+      } catch (autoLogError) {
+        console.error("Auto-log function error:", autoLogError)
         return createErrorResponse({
           message: "Failed to auto-log action for submitter",
           code: "DATABASE_ERROR",
           status: 500,
         })
       }
-
-      // Update user points and CO2 totals
-      const { data: userProfile } = await supabase
-        .from("users")
-        .select("points, total_co2_saved")
-        .eq("id", action.submitted_by)
-        .single()
-
-      if (userProfile) {
-        await adminSupabase
-          .from("users")
-          .update({
-            points: userProfile.points + pointsValue,
-          })
-          .eq("id", action.submitted_by)
-
-        // Create points transaction
-        await adminSupabase.from("point_transactions").insert({
-          user_id: action.submitted_by,
-          points: pointsValue,
-          transaction_type: "earned",
-          reference_type: "action",
-          reference_id: userActionLog.id,
-          description: `Completed: ${action.title}`,
-        })
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: "Action approved and auto-logged for submitter",
-      })
     } else {
       const adminSupabase = createAdminClient()
 
@@ -161,22 +196,40 @@ export async function POST(request: NextRequest) {
       }
 
       // Award points and update CO2 totals
-      const { data: userProfile } = await adminSupabase
+      const { data: userProfile, error: profileError } = await adminSupabase
         .from("users")
         .select("points, total_co2_saved")
         .eq("id", actionLog.user_id)
         .single()
 
+      if (profileError) {
+        console.error("Failed to fetch user profile:", profileError)
+        return createErrorResponse({
+          message: "Failed to fetch user profile",
+          code: "DATABASE_ERROR",
+          status: 500,
+        })
+      }
+
       if (userProfile) {
-        await adminSupabase
+        const { error: pointsUpdateError } = await adminSupabase
           .from("users")
           .update({
             points: userProfile.points + actionLog.points_earned,
           })
           .eq("id", actionLog.user_id)
 
+        if (pointsUpdateError) {
+          console.error("Failed to update user points:", pointsUpdateError)
+          return createErrorResponse({
+            message: "Failed to update user points",
+            code: "DATABASE_ERROR",
+            status: 500,
+          })
+        }
+
         // Create points transaction
-        await adminSupabase.from("point_transactions").insert({
+        const { error: transactionError } = await adminSupabase.from("point_transactions").insert({
           user_id: actionLog.user_id,
           points: actionLog.points_earned,
           transaction_type: "earned",
@@ -184,7 +237,14 @@ export async function POST(request: NextRequest) {
           reference_id: actionLogId,
           description: `Completed: ${action_data?.title || "Sustainability Action"}`,
         })
+
+        if (transactionError) {
+          console.error("Failed to create points transaction:", transactionError)
+          // Don't fail the entire request for transaction error
+        }
       }
+
+      // The trigger_notify_action_status_change will fire when user_actions is updated with verification_status = 'approved'
 
       return NextResponse.json({
         success: true,

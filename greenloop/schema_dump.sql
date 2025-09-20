@@ -1,5 +1,5 @@
 
-\restrict jDyx6AW6HhkKoPbkChFxRfmONn2vKc0PwwK9UtRsEEcFcXl3ct9vW0msvBfiXLD
+\restrict DdMbd7uruyi8grk8leF4lIdqZJocSpXjwe6Djes3rqb3LewDgmDoivAvNjlcICP
 
 
 SET statement_timeout = 0;
@@ -170,63 +170,6 @@ $$;
 
 
 ALTER FUNCTION "public"."award_challenge_completion_rewards"() OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."award_missing_badges"() RETURNS "text"
-    LANGUAGE "plpgsql"
-    AS $$
-DECLARE
-  user_record RECORD;
-  badge_record RECORD;
-  user_value INTEGER;
-  badges_awarded INTEGER := 0;
-BEGIN
-  -- Loop through all users
-  FOR user_record IN 
-    SELECT id FROM public.users WHERE is_active = true
-  LOOP
-    -- Loop through all active badges
-    FOR badge_record IN 
-      SELECT * FROM public.badges WHERE is_active = true
-    LOOP
-      -- Check if user already has this badge
-      IF NOT EXISTS (
-        SELECT 1 FROM public.user_badges 
-        WHERE user_id = user_record.id AND badge_id = badge_record.id
-      ) THEN
-        -- Get user's current value for the badge criteria
-        CASE badge_record.criteria_type
-          WHEN 'points' THEN
-            SELECT points INTO user_value FROM public.users WHERE id = user_record.id;
-          WHEN 'actions' THEN
-            SELECT COUNT(*) INTO user_value 
-            FROM public.user_actions 
-            WHERE user_id = user_record.id AND verification_status = 'approved';
-          WHEN 'co2_saved' THEN
-            SELECT FLOOR(total_co2_saved) INTO user_value 
-            FROM public.users WHERE id = user_record.id;
-          ELSE
-            user_value := 0;
-        END CASE;
-
-        -- Award badge if criteria met
-        IF user_value >= badge_record.criteria_value THEN
-          INSERT INTO public.user_badges (user_id, badge_id)
-          VALUES (user_record.id, badge_record.id)
-          ON CONFLICT (user_id, badge_id) DO NOTHING;
-          
-          badges_awarded := badges_awarded + 1;
-        END IF;
-      END IF;
-    END LOOP;
-  END LOOP;
-
-  RETURN 'Awarded ' || badges_awarded || ' missing badges to users.';
-END;
-$$;
-
-
-ALTER FUNCTION "public"."award_missing_badges"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."calculate_user_level"("user_points" integer) RETURNS integer
@@ -471,6 +414,177 @@ $$;
 ALTER FUNCTION "public"."cleanup_expired_sessions"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying DEFAULT NULL::character varying, "p_link_type" character varying DEFAULT NULL::character varying, "p_link_id" "uuid" DEFAULT NULL::"uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    notification_id UUID;
+    user_pref_enabled BOOLEAN := FALSE;
+BEGIN
+    -- Check if user has notification preferences, create if missing
+    IF NOT EXISTS (SELECT 1 FROM user_preferences WHERE user_id = p_user_id) THEN
+        INSERT INTO user_preferences (
+            user_id,
+            profile_visibility,
+            leaderboard_participation,
+            analytics_sharing,
+            action_status,
+            challenge_progress,
+            team_updates,
+            announcements,
+            educational_content,
+            reward_status,
+            achievement_alerts,
+            leaderboard_updates
+        ) VALUES (
+            p_user_id,
+            'public',
+            TRUE,
+            TRUE,
+            TRUE,
+            TRUE,
+            TRUE,
+            TRUE,
+            TRUE,
+            TRUE,
+            TRUE,
+            FALSE
+        );
+    END IF;
+
+    -- Check if user has this notification type enabled
+    CASE p_type
+        WHEN 'action_status' THEN
+            SELECT action_status INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'challenge_progress' THEN
+            SELECT challenge_progress INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'team_updates' THEN
+            SELECT team_updates INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'announcements' THEN
+            SELECT announcements INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'educational_content' THEN
+            SELECT educational_content INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'reward_status' THEN
+            SELECT reward_status INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'achievement_alerts' THEN
+            SELECT achievement_alerts INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'leaderboard_updates' THEN
+            SELECT leaderboard_updates INTO user_pref_enabled FROM user_preferences WHERE user_id = p_user_id;
+        ELSE
+            user_pref_enabled := TRUE; -- Default to enabled for unknown types
+    END CASE;
+
+    -- Only create notification if user has this type enabled
+    IF user_pref_enabled THEN
+        INSERT INTO notifications (user_id, type, title, message, link_url, link_type, link_id)
+        VALUES (p_user_id, p_type, p_title, p_message, p_link_url, p_link_type, p_link_id)
+        RETURNING id INTO notification_id;
+    END IF;
+
+    RETURN notification_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") IS 'Creates a notification for a user if they have that notification type enabled';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."create_notification_if_enabled"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying DEFAULT NULL::character varying, "p_link_type" character varying DEFAULT NULL::character varying, "p_link_id" "text" DEFAULT NULL::"text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    notification_id UUID;
+    user_pref_enabled BOOLEAN := FALSE;
+    link_id_uuid UUID;
+BEGIN
+    -- Convert link_id from text to UUID if provided
+    IF p_link_id IS NOT NULL THEN
+        BEGIN
+            link_id_uuid := p_link_id::UUID;
+        EXCEPTION WHEN invalid_text_representation THEN
+            link_id_uuid := NULL;
+        END;
+    END IF;
+
+    -- Ensure user has notification preferences
+    INSERT INTO user_preferences (
+        user_id,
+        profile_visibility,
+        leaderboard_participation,
+        analytics_sharing,
+        action_status,
+        challenge_progress,
+        team_updates,
+        announcements,
+        educational_content,
+        reward_status,
+        achievement_alerts,
+        leaderboard_updates
+    ) VALUES (
+        p_user_id,
+        'public',
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        FALSE
+    )
+    ON CONFLICT (user_id) DO NOTHING;
+
+    -- Check if user has this notification type enabled
+    CASE p_type
+        WHEN 'action_status' THEN
+            SELECT COALESCE(action_status, TRUE) INTO user_pref_enabled 
+            FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'challenge_progress' THEN
+            SELECT COALESCE(challenge_progress, TRUE) INTO user_pref_enabled 
+            FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'team_updates' THEN
+            SELECT COALESCE(team_updates, TRUE) INTO user_pref_enabled 
+            FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'announcements' THEN
+            SELECT COALESCE(announcements, TRUE) INTO user_pref_enabled 
+            FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'educational_content' THEN
+            SELECT COALESCE(educational_content, TRUE) INTO user_pref_enabled 
+            FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'reward_status' THEN
+            SELECT COALESCE(reward_status, TRUE) INTO user_pref_enabled 
+            FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'achievement_alerts' THEN
+            SELECT COALESCE(achievement_alerts, TRUE) INTO user_pref_enabled 
+            FROM user_preferences WHERE user_id = p_user_id;
+        WHEN 'leaderboard_updates' THEN
+            SELECT COALESCE(leaderboard_updates, FALSE) INTO user_pref_enabled 
+            FROM user_preferences WHERE user_id = p_user_id;
+        ELSE
+            user_pref_enabled := TRUE; -- Default to enabled for unknown types
+    END CASE;
+
+    -- Only create notification if user has this type enabled
+    IF user_pref_enabled THEN
+        INSERT INTO notifications (user_id, type, title, message, link_url, link_type, link_id)
+        VALUES (p_user_id, p_type, p_title, p_message, p_link_url, p_link_type, link_id_uuid)
+        RETURNING id INTO notification_id;
+    END IF;
+
+    RETURN notification_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_notification_if_enabled"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "uuid", "p_team_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -524,11 +638,36 @@ ALTER FUNCTION "public"."create_team_challenge_participants"("p_challenge_id" "u
 
 
 CREATE OR REPLACE FUNCTION "public"."create_user_preferences"() RETURNS "trigger"
-    LANGUAGE "plpgsql" SECURITY DEFINER
+    LANGUAGE "plpgsql"
     AS $$
 BEGIN
-    INSERT INTO "public"."user_preferences" ("user_id")
-    VALUES (NEW."id");
+    INSERT INTO user_preferences (
+        user_id,
+        profile_visibility,
+        leaderboard_participation,
+        analytics_sharing,
+        action_status,
+        challenge_progress,
+        team_updates,
+        announcements,
+        educational_content,
+        reward_status,
+        achievement_alerts,
+        leaderboard_updates
+    ) VALUES (
+        NEW.id,
+        'public',
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        TRUE,
+        FALSE
+    );
     RETURN NEW;
 END;
 $$;
@@ -717,6 +856,28 @@ $$;
 ALTER FUNCTION "public"."get_top_performers"("p_limit" integer) OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    unread_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO unread_count
+    FROM notifications
+    WHERE user_id = p_user_id AND is_read = FALSE;
+    
+    RETURN unread_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") IS 'Returns the count of unread notifications for a user';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."get_user_activity_summary"("p_user_id" "uuid") RETURNS TABLE("total_actions" bigint, "verified_actions" bigint, "pending_actions" bigint, "total_points" integer, "total_co2_saved" numeric, "current_level" integer, "badges_earned" bigint)
     LANGUAGE "plpgsql"
     AS $$
@@ -809,6 +970,30 @@ $$;
 
 
 ALTER FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    user_position INTEGER;
+BEGIN
+    SELECT position INTO user_position
+    FROM (
+        SELECT 
+            id,
+            ROW_NUMBER() OVER (ORDER BY points DESC, created_at ASC) as position
+        FROM users 
+        WHERE is_active = true
+    ) ranked_users
+    WHERE id = user_id_param;
+    
+    RETURN COALESCE(user_position, 0);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
@@ -1045,6 +1230,283 @@ $$;
 
 
 ALTER FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event_type" "text", "p_resource_type" "text", "p_resource_id" "uuid", "p_details" "jsonb", "p_severity" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    updated_count INTEGER;
+BEGIN
+    UPDATE notifications 
+    SET is_read = TRUE, updated_at = NOW()
+    WHERE user_id = p_user_id AND is_read = FALSE;
+    
+    GET DIAGNOSTICS updated_count = ROW_COUNT;
+    RETURN updated_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") IS 'Marks all unread notifications as read for a user';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    UPDATE notifications 
+    SET is_read = TRUE, updated_at = NOW()
+    WHERE id = notification_id AND user_id = p_user_id;
+    
+    RETURN FOUND;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") IS 'Marks a specific notification as read for a user';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_action_status_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    action_title TEXT;
+    is_auto_logged BOOLEAN := FALSE;
+BEGIN
+    -- Only process status changes to approved or rejected
+    IF NEW.verification_status IN ('approved', 'rejected') AND 
+       (OLD IS NULL OR OLD.verification_status != NEW.verification_status) THEN
+        
+        -- Check if this is an auto-logged action (from personal action approval)
+        -- Auto-logged actions have notes = 'Auto-logged upon action approval'
+        IF NEW.notes = 'Auto-logged upon action approval' THEN
+            is_auto_logged := TRUE;
+        END IF;
+        
+        -- Skip notifications for auto-logged actions since they already get 
+        -- notifications from trigger_notify_user_action_submission_approved
+        IF NOT is_auto_logged THEN
+            -- Get the action title
+            SELECT title INTO action_title 
+            FROM sustainability_actions 
+            WHERE id = NEW.action_id;
+            
+            -- Send appropriate notification
+            IF NEW.verification_status = 'approved' THEN
+                PERFORM create_notification_if_enabled(
+                    NEW.user_id,
+                    'action_status',
+                    'Action Approved! ✅',
+                    'Your action ''' || COALESCE(action_title, 'Sustainability Action') || ''' has been approved! +' || 
+                    COALESCE(NEW.points_earned, 0) || ' points earned' ||
+                    CASE WHEN NEW.co2_saved > 0 THEN ' • ' || NEW.co2_saved || ' kg CO2 impact' ELSE '' END,
+                    '/actions',
+                    'action',
+                    NEW.id::TEXT
+                );
+            ELSIF NEW.verification_status = 'rejected' THEN
+                PERFORM create_notification_if_enabled(
+                    NEW.user_id,
+                    'action_status',
+                    'Action Rejected ❌',
+                    'Your action ''' || COALESCE(action_title, 'Sustainability Action') || ''' was rejected. Reason: ' || 
+                    COALESCE(NEW.notes, 'No reason provided'),
+                    '/actions',
+                    'action',
+                    NEW.id::TEXT
+                );
+            END IF;
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log the error but don't fail the transaction
+        RAISE WARNING 'Error sending action status notification for user %: %', NEW.user_id, SQLERRM;
+        RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_action_status_change"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_announcement_created"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    user_record RECORD;
+BEGIN
+    -- Only send notifications for published announcements
+    IF NEW.type = 'announcement' AND NEW.status = 'published' THEN
+        -- Send notification to all active users
+        FOR user_record IN 
+            SELECT id FROM users WHERE is_active = TRUE
+        LOOP
+            PERFORM create_notification_if_enabled(
+                user_record.id,
+                'announcements',
+                'New Announcement: ' || NEW.title || ' 📢',
+                COALESCE(LEFT(NEW.content, 100) || CASE WHEN LENGTH(NEW.content) > 100 THEN '...' ELSE '' END, 'New announcement: ' || NEW.title),
+                '/announcements',
+                'announcement',
+                NEW.id::TEXT
+            );
+        END LOOP;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_announcement_created"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_badge_achievement"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    badge_name_text TEXT;
+BEGIN
+    -- Get the badge name from the badges table
+    SELECT name INTO badge_name_text
+    FROM badges
+    WHERE id = NEW.badge_id;
+    
+    -- Send notification for new badge achievement
+    PERFORM create_notification_if_enabled(
+        NEW.user_id,
+        'achievement_alerts',
+        'New Achievement Unlocked! 🏆',
+        'New Achievement Unlocked: ''' || badge_name_text || '''',
+        '/badges',
+        'badge',
+        NEW.id::text
+    );
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_badge_achievement"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_educational_content_created"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    user_record RECORD;
+BEGIN
+    -- Only send notifications for published educational content
+    IF NEW.type = 'educational' AND NEW.status = 'published' THEN
+        -- Send notification to all active users
+        FOR user_record IN 
+            SELECT id FROM users WHERE is_active = TRUE
+        LOOP
+            PERFORM create_notification_if_enabled(
+                user_record.id,
+                'educational_content',
+                'New Educational Content: ''' || NEW.title || ''' 📚',
+                'New educational content available: ' || NEW.title,
+                '/education',
+                'education',
+                NEW.id::TEXT
+            );
+        END LOOP;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_educational_content_created"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_level_milestone"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    old_level INTEGER;
+    new_level INTEGER;
+    level_threshold_points INTEGER;
+BEGIN
+    -- Calculate old and new levels using the level calculation function
+    SELECT calculate_user_level(OLD.points) INTO old_level;
+    SELECT calculate_user_level(NEW.points) INTO new_level;
+    
+    -- Only send notification if level increased
+    IF new_level > old_level THEN
+        -- Get the points required for the new level
+        SELECT points_required INTO level_threshold_points
+        FROM level_thresholds
+        WHERE level = new_level;
+        
+        -- Send milestone notification
+        PERFORM create_notification_if_enabled(
+            NEW.user_id,
+            'achievement_alerts',
+            'Milestone Reached! ⭐',
+            'Milestone Reached: Level ' || new_level || ' achieved with ' || NEW.points || ' points!',
+            '/profile',
+            'badge',
+            NEW.user_id::text
+        );
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_level_milestone"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_user_action_submission_approved"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    -- Only process when a user-submitted action becomes active (approved)
+    IF NEW.is_active = TRUE AND NEW.is_user_created = TRUE AND NEW.submitted_by IS NOT NULL AND
+       (OLD IS NULL OR OLD.is_active != TRUE) THEN
+        
+        -- Removed "and is now available for everyone" from notification message
+        PERFORM create_notification_if_enabled(
+            NEW.submitted_by,
+            'action_status',
+            'Action Approved! ✅',
+            'Your submitted action ''' || NEW.title || ''' has been approved! +' || 
+            COALESCE(NEW.points_value, 0) || ' points earned' ||
+            CASE WHEN NEW.co2_impact > 0 THEN ' • ' || NEW.co2_impact || ' kg CO2 impact' ELSE '' END,
+            '/actions',
+            'action',
+            NEW.id::TEXT
+        );
+    END IF;
+    
+    RETURN NEW;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log the error but don't fail the transaction
+        RAISE WARNING 'Error sending user action submission notification for user %: %', NEW.submitted_by, SQLERRM;
+        RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_user_action_submission_approved"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."recalculate_all_challenge_progress"() RETURNS "void"
@@ -1285,24 +1747,152 @@ $$;
 ALTER FUNCTION "public"."safe_check_max_participants"("challenge_id_param" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."send_weekly_points_notifications"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    user_record RECORD;
+    weekly_points INTEGER;
+    start_date DATE;
+    end_date DATE;
+BEGIN
+    -- Calculate this week's date range
+    start_date := date_trunc('week', CURRENT_DATE);
+    end_date := start_date + INTERVAL '7 days';
+    
+    -- Loop through all active users
+    FOR user_record IN 
+        SELECT DISTINCT user_id 
+        FROM point_transactions 
+        WHERE created_at >= start_date 
+        AND created_at < end_date
+    LOOP
+        -- Calculate weekly points for this user
+        SELECT COALESCE(SUM(points), 0) INTO weekly_points
+        FROM point_transactions
+        WHERE user_id = user_record.user_id
+        AND created_at >= start_date
+        AND created_at < end_date;
+        
+        -- Send notification if user earned points this week
+        IF weekly_points > 0 THEN
+            PERFORM create_notification_if_enabled(
+                user_record.user_id,
+                'achievement_alerts',
+                'Weekly Points! 🎯',
+                'You''ve earned ' || weekly_points || ' points this week!',
+                '/profile',
+                'badge',
+                user_record.user_id::text
+            );
+        END IF;
+    END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."send_weekly_points_notifications"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."send_weekly_points_notifications"() IS 'Send weekly points summary notifications to all users. Should be called by a scheduled job every Monday at 9 AM.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."simple_update_user_co2_savings"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 BEGIN
-  -- Added validation to ensure user_id exists and action is approved
-  IF NEW.user_id IS NOT NULL AND NEW.verification_status = 'approved' THEN
-    UPDATE public.users 
-    SET total_co2_saved = COALESCE(total_co2_saved, 0) + NEW.co2_saved,
-        updated_at = NOW()
-    WHERE id = NEW.user_id;
-  END IF;
-  
-  RETURN NEW;
+    -- Only update for approved actions
+    IF NEW.verification_status = 'approved' AND (OLD IS NULL OR OLD.verification_status != 'approved') THEN
+        -- Update user's total CO2 saved
+        UPDATE users 
+        SET total_co2_saved = COALESCE(total_co2_saved, 0) + COALESCE(NEW.co2_saved, 0)
+        WHERE id = NEW.user_id;
+    END IF;
+    
+    RETURN NEW;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log the error but don't fail the transaction
+        RAISE WARNING 'Error updating CO2 savings for user %: %', NEW.user_id, SQLERRM;
+        RETURN NEW;
 END;
 $$;
 
 
 ALTER FUNCTION "public"."simple_update_user_co2_savings"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."track_leaderboard_changes"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    old_position INTEGER;
+    new_position INTEGER;
+    position_change INTEGER;
+BEGIN
+    -- Only process when points change
+    IF NEW.points != OLD.points THEN
+        -- Get old position (approximate based on old points)
+        SELECT COUNT(*) + 1 INTO old_position
+        FROM users 
+        WHERE points > OLD.points AND is_active = true;
+        
+        -- Get new position
+        new_position := get_user_leaderboard_position(NEW.id);
+        
+        -- Calculate position change
+        position_change := old_position - new_position;
+        
+        -- Send notifications based on position changes
+        IF position_change > 0 THEN
+            -- User moved up
+            IF new_position = 1 THEN
+                -- User reached #1
+                PERFORM create_notification(
+                    NEW.id,
+                    'leaderboard_updates',
+                    'Top of Leaderboard! 🥇',
+                    'Congratulations! You''re now #1 on the leaderboard!',
+                    '/leaderboard',
+                    'leaderboard',
+                    NULL
+                );
+            ELSIF position_change >= 5 THEN
+                -- Significant movement (5+ positions)
+                PERFORM create_notification(
+                    NEW.id,
+                    'leaderboard_updates',
+                    'Leaderboard Update 📈',
+                    format('You moved up %s positions on the leaderboard! Now ranked #%s', position_change, new_position),
+                    '/leaderboard',
+                    'leaderboard',
+                    NULL
+                );
+            END IF;
+        END IF;
+        
+        -- Check for trending (weekly basis - simplified to recent activity)
+        -- This is a simplified version - in production you might want more sophisticated trending logic
+        IF position_change >= 3 AND NEW.updated_at > NOW() - INTERVAL '7 days' THEN
+            PERFORM create_notification(
+                NEW.id,
+                'leaderboard_updates',
+                'Trending Up! ⚡',
+                format('You''re trending up! +%s positions this week', position_change),
+                '/leaderboard',
+                'leaderboard',
+                NULL
+            );
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."track_leaderboard_changes"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."trigger_log_admin_action"() RETURNS "trigger"
@@ -1775,6 +2365,46 @@ $$;
 ALTER FUNCTION "public"."update_user_points"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."update_user_points_and_notify"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+    total_points INTEGER;
+    old_level INTEGER;
+    new_level INTEGER;
+BEGIN
+    -- Calculate total points for the user
+    SELECT COALESCE(SUM(points), 0) INTO total_points
+    FROM point_transactions
+    WHERE user_id = NEW.user_id;
+    
+    -- Get old level (before this transaction)
+    SELECT calculate_user_level(total_points - NEW.points) INTO old_level;
+    
+    -- Get new level (after this transaction)
+    SELECT calculate_user_level(total_points) INTO new_level;
+    
+    -- Send notification if level increased
+    IF new_level > old_level THEN
+        PERFORM create_notification_if_enabled(
+            NEW.user_id,
+            'achievement_alerts',
+            'Milestone Reached! ⭐',
+            'Milestone Reached: Level ' || new_level || ' achieved with ' || total_points || ' points!',
+            '/profile',
+            'badge',
+            NEW.user_id::text
+        );
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_user_points_and_notify"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."validate_level_thresholds_order"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -1890,8 +2520,8 @@ ALTER TABLE "public"."action_categories" OWNER TO "postgres";
 CREATE TABLE IF NOT EXISTS "public"."admin_activities" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "admin_id" "uuid" NOT NULL,
-    "action_type" character varying(100) NOT NULL,
-    "target_type" character varying(50),
+    "action_type" character varying NOT NULL,
+    "target_type" character varying NOT NULL,
     "target_id" "uuid",
     "description" "text",
     "metadata" "jsonb" DEFAULT '{}'::"jsonb",
@@ -2527,6 +3157,28 @@ CREATE TABLE IF NOT EXISTS "public"."news_articles" (
 ALTER TABLE "public"."news_articles" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."notifications" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "type" character varying(50) NOT NULL,
+    "title" character varying(255) NOT NULL,
+    "message" "text" NOT NULL,
+    "link_url" character varying(500),
+    "link_type" character varying(50),
+    "link_id" "uuid",
+    "is_read" boolean DEFAULT false,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"()
+);
+
+
+ALTER TABLE "public"."notifications" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."notifications" IS 'Stores in-app notifications for users with links to related content';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."password_resets" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -2729,16 +3381,19 @@ ALTER TABLE "public"."user_level_rewards" OWNER TO "postgres";
 CREATE TABLE IF NOT EXISTS "public"."user_preferences" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
-    "email_notifications" boolean DEFAULT true,
-    "weekly_digest" boolean DEFAULT true,
     "achievement_alerts" boolean DEFAULT true,
-    "leaderboard_updates" boolean DEFAULT true,
-    "team_invitations" boolean DEFAULT true,
+    "leaderboard_updates" boolean DEFAULT false,
     "profile_visibility" "text" DEFAULT 'public'::"text",
     "leaderboard_participation" boolean DEFAULT true,
     "analytics_sharing" boolean DEFAULT true,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
+    "action_status" boolean DEFAULT true,
+    "challenge_progress" boolean DEFAULT true,
+    "team_updates" boolean DEFAULT true,
+    "announcements" boolean DEFAULT true,
+    "educational_content" boolean DEFAULT true,
+    "reward_status" boolean DEFAULT true,
     CONSTRAINT "user_preferences_profile_visibility_check" CHECK (("profile_visibility" = ANY (ARRAY['public'::"text", 'private'::"text"])))
 );
 
@@ -2868,6 +3523,11 @@ ALTER TABLE ONLY "public"."level_thresholds"
 
 ALTER TABLE ONLY "public"."news_articles"
     ADD CONSTRAINT "news_articles_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "notifications_pkey" PRIMARY KEY ("id");
 
 
 
@@ -3086,6 +3746,10 @@ CREATE INDEX "idx_content_items_type" ON "public"."content_items" USING "btree" 
 
 
 
+CREATE INDEX "idx_content_items_type_status" ON "public"."content_items" USING "btree" ("type", "status");
+
+
+
 CREATE INDEX "idx_level_rewards_active" ON "public"."level_rewards" USING "btree" ("is_active");
 
 
@@ -3107,6 +3771,30 @@ CREATE INDEX "idx_news_articles_published" ON "public"."news_articles" USING "bt
 
 
 CREATE INDEX "idx_news_articles_published_at" ON "public"."news_articles" USING "btree" ("published_at");
+
+
+
+CREATE INDEX "idx_notifications_created_at" ON "public"."notifications" USING "btree" ("created_at");
+
+
+
+CREATE INDEX "idx_notifications_is_read" ON "public"."notifications" USING "btree" ("is_read");
+
+
+
+CREATE INDEX "idx_notifications_type" ON "public"."notifications" USING "btree" ("type");
+
+
+
+CREATE INDEX "idx_notifications_user_id" ON "public"."notifications" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_notifications_user_type" ON "public"."notifications" USING "btree" ("user_id", "type");
+
+
+
+CREATE INDEX "idx_notifications_user_unread" ON "public"."notifications" USING "btree" ("user_id", "is_read") WHERE ("is_read" = false);
 
 
 
@@ -3230,6 +3918,10 @@ CREATE INDEX "idx_user_level_rewards_user_id" ON "public"."user_level_rewards" U
 
 
 
+CREATE INDEX "idx_user_preferences_user_id" ON "public"."user_preferences" USING "btree" ("user_id");
+
+
+
 CREATE INDEX "idx_user_sessions_expires" ON "public"."user_sessions" USING "btree" ("expires_at");
 
 
@@ -3313,6 +4005,10 @@ CREATE OR REPLACE TRIGGER "award_challenge_rewards_trigger" AFTER UPDATE ON "pub
 
 
 
+CREATE OR REPLACE TRIGGER "badge_achievement_notification" AFTER INSERT ON "public"."user_badges" FOR EACH ROW EXECUTE FUNCTION "public"."notify_badge_achievement"();
+
+
+
 CREATE OR REPLACE TRIGGER "check_personal_challenge_rate_limit_trigger" BEFORE INSERT ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."check_personal_challenge_rate_limit"();
 
 
@@ -3322,6 +4018,14 @@ CREATE OR REPLACE TRIGGER "create_user_preferences_trigger" AFTER INSERT ON "pub
 
 
 CREATE OR REPLACE TRIGGER "ensure_team_leader_trigger" AFTER INSERT OR UPDATE OF "team_leader_id" ON "public"."teams" FOR EACH ROW EXECUTE FUNCTION "public"."ensure_team_leader_in_members"();
+
+
+
+CREATE OR REPLACE TRIGGER "leaderboard_notification_trigger" AFTER UPDATE ON "public"."users" FOR EACH ROW WHEN (("new"."points" IS DISTINCT FROM "old"."points")) EXECUTE FUNCTION "public"."track_leaderboard_changes"();
+
+
+
+CREATE OR REPLACE TRIGGER "level_milestone_notification" AFTER INSERT ON "public"."point_transactions" FOR EACH ROW EXECUTE FUNCTION "public"."update_user_points_and_notify"();
 
 
 
@@ -3374,6 +4078,22 @@ CREATE OR REPLACE TRIGGER "trigger_award_new_badge" AFTER INSERT ON "public"."ba
 
 
 CREATE OR REPLACE TRIGGER "trigger_log_challenge_creation" AFTER INSERT ON "public"."challenges" FOR EACH ROW EXECUTE FUNCTION "public"."log_challenge_creation"();
+
+
+
+CREATE OR REPLACE TRIGGER "trigger_notify_action_status_change" AFTER INSERT OR UPDATE OF "verification_status" ON "public"."user_actions" FOR EACH ROW EXECUTE FUNCTION "public"."notify_action_status_change"();
+
+
+
+CREATE OR REPLACE TRIGGER "trigger_notify_announcement_created" AFTER INSERT ON "public"."content_items" FOR EACH ROW WHEN ((("new"."type" = 'announcement'::"text") AND ("new"."status" = 'published'::"text"))) EXECUTE FUNCTION "public"."notify_announcement_created"();
+
+
+
+CREATE OR REPLACE TRIGGER "trigger_notify_educational_content_created" AFTER INSERT ON "public"."content_items" FOR EACH ROW WHEN ((("new"."type" = 'educational'::"text") AND ("new"."status" = 'published'::"text"))) EXECUTE FUNCTION "public"."notify_educational_content_created"();
+
+
+
+CREATE OR REPLACE TRIGGER "trigger_notify_user_action_submission_approved" AFTER UPDATE OF "is_active" ON "public"."sustainability_actions" FOR EACH ROW EXECUTE FUNCTION "public"."notify_user_action_submission_approved"();
 
 
 
@@ -3469,6 +4189,11 @@ ALTER TABLE ONLY "public"."content_items"
 
 ALTER TABLE ONLY "public"."news_articles"
     ADD CONSTRAINT "news_articles_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "public"."users"("id");
+
+
+
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -3613,6 +4338,10 @@ CREATE POLICY "Admins can view all reward claims" ON "public"."user_level_reward
 
 
 
+CREATE POLICY "System can insert notifications" ON "public"."notifications" FOR INSERT WITH CHECK (true);
+
+
+
 CREATE POLICY "Users can create their own reward claims" ON "public"."user_level_rewards" FOR INSERT TO "authenticated" WITH CHECK (("user_id" = "auth"."uid"()));
 
 
@@ -3621,11 +4350,19 @@ CREATE POLICY "Users can insert their own preferences" ON "public"."user_prefere
 
 
 
+CREATE POLICY "Users can update their own notifications" ON "public"."notifications" FOR UPDATE USING (("auth"."uid"() = "user_id"));
+
+
+
 CREATE POLICY "Users can update their own preferences" ON "public"."user_preferences" FOR UPDATE USING (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can view active level rewards" ON "public"."level_rewards" FOR SELECT TO "authenticated" USING (("is_active" = true));
+
+
+
+CREATE POLICY "Users can view their own notifications" ON "public"."notifications" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
@@ -3918,6 +4655,9 @@ CREATE POLICY "news_articles_admin_manage" ON "public"."news_articles" USING ("p
 
 CREATE POLICY "news_articles_select_secure" ON "public"."news_articles" FOR SELECT USING ((("is_published" = true) OR "public"."is_admin"()));
 
+
+
+ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."password_resets" ENABLE ROW LEVEL SECURITY;
@@ -4348,12 +5088,6 @@ GRANT ALL ON FUNCTION "public"."award_challenge_completion_rewards"() TO "servic
 
 
 
-GRANT ALL ON FUNCTION "public"."award_missing_badges"() TO "anon";
-GRANT ALL ON FUNCTION "public"."award_missing_badges"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."award_missing_badges"() TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."calculate_user_level"("user_points" integer) TO "service_role";
@@ -4400,6 +5134,18 @@ GRANT ALL ON FUNCTION "public"."cleanup_expired_password_resets"() TO "service_r
 GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "anon";
 GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."cleanup_expired_sessions"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_notification_if_enabled"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_notification_if_enabled"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_notification_if_enabled"("p_user_id" "uuid", "p_type" character varying, "p_title" character varying, "p_message" "text", "p_link_url" character varying, "p_link_type" character varying, "p_link_id" "text") TO "service_role";
 
 
 
@@ -4452,6 +5198,12 @@ GRANT ALL ON FUNCTION "public"."get_top_performers"("p_limit" integer) TO "servi
 
 
 
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"("p_user_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_user_activity_summary"("p_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_user_activity_summary"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_user_activity_summary"("p_user_id" "uuid") TO "service_role";
@@ -4467,6 +5219,12 @@ GRANT ALL ON FUNCTION "public"."get_user_available_rewards"("user_uuid" "uuid") 
 GRANT ALL ON FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_user_current_level"("user_uuid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_user_leaderboard_position"("user_id_param" "uuid") TO "service_role";
 
 
 
@@ -4524,6 +5282,54 @@ GRANT ALL ON FUNCTION "public"."log_security_event"("p_user_id" "uuid", "p_event
 
 
 
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"("p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("notification_id" "uuid", "p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_action_status_change"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_action_status_change"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_action_status_change"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_announcement_created"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_announcement_created"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_announcement_created"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_badge_achievement"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_badge_achievement"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_badge_achievement"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_educational_content_created"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_educational_content_created"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_educational_content_created"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_level_milestone"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_level_milestone"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_level_milestone"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_user_action_submission_approved"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_user_action_submission_approved"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_user_action_submission_approved"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "anon";
 GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."recalculate_all_challenge_progress"() TO "service_role";
@@ -4554,9 +5360,21 @@ GRANT ALL ON FUNCTION "public"."safe_check_max_participants"("challenge_id_param
 
 
 
+GRANT ALL ON FUNCTION "public"."send_weekly_points_notifications"() TO "anon";
+GRANT ALL ON FUNCTION "public"."send_weekly_points_notifications"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."send_weekly_points_notifications"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "anon";
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."simple_update_user_co2_savings"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."track_leaderboard_changes"() TO "anon";
+GRANT ALL ON FUNCTION "public"."track_leaderboard_changes"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."track_leaderboard_changes"() TO "service_role";
 
 
 
@@ -4599,6 +5417,12 @@ GRANT ALL ON FUNCTION "public"."update_user_level"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_user_points"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_user_points_and_notify"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_user_points_and_notify"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_user_points_and_notify"() TO "service_role";
 
 
 
@@ -4809,6 +5633,12 @@ GRANT ALL ON TABLE "public"."news_articles" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."notifications" TO "anon";
+GRANT ALL ON TABLE "public"."notifications" TO "authenticated";
+GRANT ALL ON TABLE "public"."notifications" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."password_resets" TO "anon";
 GRANT ALL ON TABLE "public"."password_resets" TO "authenticated";
 GRANT ALL ON TABLE "public"."password_resets" TO "service_role";
@@ -4929,6 +5759,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict jDyx6AW6HhkKoPbkChFxRfmONn2vKc0PwwK9UtRsEEcFcXl3ct9vW0msvBfiXLD
+\unrestrict DdMbd7uruyi8grk8leF4lIdqZJocSpXjwe6Djes3rqb3LewDgmDoivAvNjlcICP
 
 RESET ALL;

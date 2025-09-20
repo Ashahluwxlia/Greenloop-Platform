@@ -27,6 +27,7 @@ import {
   Gift,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { NotificationBell } from "@/components/notification-bell"
 
 interface NavigationProps {
   user?: {
@@ -236,6 +237,8 @@ export function Navigation({ user }: NavigationProps) {
               <div className="text-xs text-muted-foreground">Level {userLevel}</div>
             </div>
           </div>
+
+          <NotificationBell />
 
           <div className="relative" ref={avatarDropdownRef}>
             <Button
