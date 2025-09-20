@@ -1,5 +1,5 @@
 
-\restrict XpziJFlRLtmRfp4h7FYZuuz89C00U75yatE6kelqGtB6L7kDYnH8lHwibIwAqnX
+\restrict DdMbd7uruyi8grk8leF4lIdqZJocSpXjwe6Djes3rqb3LewDgmDoivAvNjlcICP
 
 
 SET statement_timeout = 0;
@@ -133,17 +133,6 @@ BEGIN
                             'challenge'
                         );
                         
-                        -- Create notification for challenge completion
-                        PERFORM create_notification(
-                            team_member_record.user_id,
-                            'challenge_progress',
-                            'Challenge Completed! 🎉',
-                            format('Challenge completed! You earned %s points from ''%s''', challenge_record.reward_points, challenge_record.title),
-                            '/challenges',
-                            'challenge',
-                            challenge_record.id::text
-                        );
-                        
                         RAISE NOTICE 'Awarded % points to user % for completing team challenge %', 
                             challenge_record.reward_points, team_member_record.user_id, challenge_record.title;
                     END LOOP;
@@ -166,64 +155,11 @@ BEGIN
                         'challenge'
                     );
                     
-                    -- Create notification for challenge completion
-                    PERFORM create_notification(
-                        NEW.user_id,
-                        'challenge_progress',
-                        'Challenge Completed! 🎉',
-                        format('Challenge completed! You earned %s points from ''%s''', challenge_record.reward_points, challenge_record.title),
-                        '/challenges',
-                        'challenge',
-                        challenge_record.id::text
-                    );
-                    
                     RAISE NOTICE 'Awarded % points to user % for completing company challenge %', 
                         challenge_record.reward_points, NEW.user_id, challenge_record.title;
                         
             END CASE;
             
-        ELSE
-            -- Even if no reward points, still send completion notification
-            IF challenge_record.challenge_type = 'individual' THEN
-                PERFORM create_notification(
-                    NEW.user_id,
-                    'challenge_progress',
-                    'Challenge Completed! 🎉',
-                    format('Congratulations! You completed ''%s''', challenge_record.title),
-                    '/challenges',
-                    'challenge',
-                    challenge_record.id::text
-                );
-            ELSIF challenge_record.challenge_type = 'team' THEN
-                -- Send notification to all team members who completed
-                FOR team_member_record IN
-                    SELECT DISTINCT cp.user_id
-                    FROM challenge_participants cp
-                    WHERE cp.challenge_id = NEW.challenge_id
-                    AND cp.user_id IS NOT NULL
-                    AND cp.completed = true
-                LOOP
-                    PERFORM create_notification(
-                        team_member_record.user_id,
-                        'challenge_progress',
-                        'Challenge Completed! 🎉',
-                        format('Congratulations! Your team completed ''%s''', challenge_record.title),
-                        '/challenges',
-                        'challenge',
-                        challenge_record.id::text
-                    );
-                END LOOP;
-            ELSIF challenge_record.challenge_type = 'company' THEN
-                PERFORM create_notification(
-                    NEW.user_id,
-                    'challenge_progress',
-                    'Challenge Completed! 🎉',
-                    format('Congratulations! You completed the company challenge ''%s''', challenge_record.title),
-                    '/challenges',
-                    'challenge',
-                    challenge_record.id::text
-                );
-            END IF;
         END IF;
         
     END IF;
@@ -5823,6 +5759,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-\unrestrict XpziJFlRLtmRfp4h7FYZuuz89C00U75yatE6kelqGtB6L7kDYnH8lHwibIwAqnX
+\unrestrict DdMbd7uruyi8grk8leF4lIdqZJocSpXjwe6Djes3rqb3LewDgmDoivAvNjlcICP
 
 RESET ALL;

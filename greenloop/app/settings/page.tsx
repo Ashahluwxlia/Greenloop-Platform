@@ -8,22 +8,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   SettingsIcon,
   Bell,
-  Shield,
   Trash2,
   Download,
   AlertCircle,
   CheckCircle,
-  Eye,
   Target,
-  Trophy,
   Users,
   Megaphone,
   GraduationCap,
@@ -254,9 +249,8 @@ export default function SettingsPage() {
             {/* Settings Form */}
             <div className="xl:col-span-3 space-y-6">
               <Tabs defaultValue="notifications" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="notifications">Notifications</TabsTrigger>
-                  <TabsTrigger value="privacy">Privacy & Security</TabsTrigger>
                   <TabsTrigger value="data">Data Management</TabsTrigger>
                 </TabsList>
 
@@ -284,22 +278,6 @@ export default function SettingsPage() {
                           <Switch
                             checked={preferences.action_status}
                             onCheckedChange={(checked) => handleSettingChange("action_status", checked)}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <Label className="flex items-center gap-2">
-                              <Trophy className="h-4 w-4 text-purple-600" />
-                              Challenge Progress Updates
-                            </Label>
-                            <p className="text-sm text-muted-foreground">
-                              Notifications about challenge milestones and completion
-                            </p>
-                          </div>
-                          <Switch
-                            checked={preferences.challenge_progress}
-                            onCheckedChange={(checked) => handleSettingChange("challenge_progress", checked)}
                           />
                         </div>
 
@@ -401,91 +379,6 @@ export default function SettingsPage() {
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="privacy" className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Shield className="h-5 w-5" />
-                        Privacy & Security Controls
-                      </CardTitle>
-                      <CardDescription>Control your privacy and data sharing preferences</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Profile Visibility</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Control who can see your profile and achievements
-                          </p>
-                          {preferences.profile_visibility === "private" && (
-                            <p className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                              Your profile is currently private and hidden from leaderboards
-                            </p>
-                          )}
-                        </div>
-                        <Select
-                          value={preferences.profile_visibility}
-                          onValueChange={(value) => handleSettingChange("profile_visibility", value)}
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="public">
-                              <div className="flex items-center gap-2">
-                                <Eye className="h-4 w-4" />
-                                Public
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="private">
-                              <div className="flex items-center gap-2">
-                                <Shield className="h-4 w-4" />
-                                Private
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Leaderboard Participation</Label>
-                          <p className="text-sm text-muted-foreground">Include your data in company leaderboards</p>
-                          {!preferences.leaderboard_participation && (
-                            <p className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                              You are currently excluded from all leaderboards
-                            </p>
-                          )}
-                        </div>
-                        <Switch
-                          checked={preferences.leaderboard_participation}
-                          onCheckedChange={(checked) => handleSettingChange("leaderboard_participation", checked)}
-                          disabled={preferences.profile_visibility === "private"}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Analytics Sharing</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Share anonymized data for sustainability insights
-                          </p>
-                          {!preferences.analytics_sharing && (
-                            <p className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                              Your data is not being shared for analytics
-                            </p>
-                          )}
-                        </div>
-                        <Switch
-                          checked={preferences.analytics_sharing}
-                          onCheckedChange={(checked) => handleSettingChange("analytics_sharing", checked)}
-                          disabled={preferences.profile_visibility === "private"}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
                 <TabsContent value="data" className="space-y-6">
                   <Card>
                     <CardHeader>
@@ -509,36 +402,21 @@ export default function SettingsPage() {
                       <Separator />
 
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between p-4 bg-destructive/5 border border-destructive/20 rounded-lg">
-                          <div>
-                            <h4 className="font-medium text-destructive">Delete Account</h4>
-                            <p className="text-sm text-muted-foreground">
-                              Permanently delete your account and all associated data
-                            </p>
+                        <div className="p-6 bg-destructive/5 border border-destructive/20 rounded-lg text-center">
+                          <div className="space-y-3">
+                            <Trash2 className="h-8 w-8 text-destructive mx-auto" />
+                            <div>
+                              <h4 className="font-bold text-lg text-destructive mb-2">Delete Account</h4>
+                              <p className="text-base font-semibold text-foreground">
+                                To delete your account, please contact your administrator.
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-2">
+                                Account deletion requires administrative approval and cannot be processed through this
+                                interface.
+                              </p>
+                            </div>
                           </div>
-                          <Button variant="destructive" onClick={handleDeleteAccount} disabled={isDeleting}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            {isDeleting ? "Deleting..." : showDeleteConfirm ? "Confirm Delete" : "Delete"}
-                          </Button>
                         </div>
-
-                        {showDeleteConfirm && (
-                          <div className="space-y-4">
-                            <Alert variant="destructive">
-                              <AlertCircle className="h-4 w-4" />
-                              <AlertDescription>
-                                This action cannot be undone. All your sustainability data, achievements, and progress
-                                will be permanently deleted. Type "DELETE MY ACCOUNT" below to confirm.
-                              </AlertDescription>
-                            </Alert>
-                            <Input
-                              placeholder="Type DELETE MY ACCOUNT to confirm"
-                              value={deleteConfirmText}
-                              onChange={(e) => setDeleteConfirmText(e.target.value)}
-                              className="border-destructive focus:border-destructive"
-                            />
-                          </div>
-                        )}
                       </div>
                     </CardContent>
                   </Card>
