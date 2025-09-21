@@ -203,11 +203,16 @@ export function Navigation({ user }: NavigationProps) {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center px-4">
-        <Link href="/dashboard" className="flex items-center gap-2 flex-shrink-0 mr-6">
-          <div className="p-1.5 bg-primary rounded-lg">
-            <Leaf className="h-5 w-5 text-primary-foreground" />
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2 flex-shrink-0 mr-6 group transition-all duration-300 hover:scale-105"
+        >
+          <div className="p-1.5 bg-primary rounded-lg transition-all duration-300 group-hover:shadow-lg group-hover:shadow-primary/25 group-hover:bg-primary/90">
+            <Leaf className="h-5 w-5 text-primary-foreground transition-transform duration-300 group-hover:rotate-12" />
           </div>
-          <span className="font-bold text-lg">{platform_name}</span>
+          <span className="font-bold text-lg transition-colors duration-300 group-hover:text-primary">
+            {platform_name}
+          </span>
         </Link>
 
         <nav className="hidden lg:flex items-center flex-1">
@@ -217,24 +222,33 @@ export function Navigation({ user }: NavigationProps) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-2 transition-colors hover:text-foreground/80 px-3 py-2 rounded-md whitespace-nowrap",
-                  pathname === item.href ? "text-foreground bg-accent" : "text-foreground/60",
+                  "flex items-center gap-2 px-3 py-2 rounded-md whitespace-nowrap group relative overflow-hidden",
+                  "transition-all duration-300 ease-out",
+                  "hover:scale-105 hover:shadow-md hover:shadow-primary/10",
+                  "before:absolute before:inset-0 before:bg-gradient-to-r before:from-primary/10 before:to-primary/5",
+                  "before:translate-x-[-100%] before:transition-transform before:duration-300",
+                  "hover:before:translate-x-0",
+                  pathname === item.href
+                    ? "text-foreground bg-accent shadow-sm"
+                    : "text-foreground/60 hover:text-foreground hover:bg-accent/50",
                   item.href === "/admin" &&
-                    "text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300",
+                    "text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20",
                 )}
               >
-                <item.icon className="h-4 w-4 flex-shrink-0" />
-                <span className="text-sm font-medium">{item.title}</span>
+                <item.icon className="h-4 w-4 flex-shrink-0 relative z-10 transition-all duration-300 group-hover:scale-110 group-hover:rotate-3" />
+                <span className="text-sm font-medium relative z-10 transition-all duration-300">{item.title}</span>
+
+                <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full" />
               </Link>
             ))}
           </div>
         </nav>
 
         <div className="flex items-center gap-3 flex-shrink-0 ml-6">
-          <div className="hidden sm:flex items-center gap-2 text-sm">
-            <div className="text-right">
+          <div className="hidden sm:flex items-center gap-2 text-sm group transition-all duration-300 hover:scale-105">
+            <div className="text-right transition-all duration-300 group-hover:text-primary">
               <div className="font-medium">{userPoints} pts</div>
-              <div className="text-xs text-muted-foreground">Level {userLevel}</div>
+              <div className="text-xs text-muted-foreground group-hover:text-primary/70">Level {userLevel}</div>
             </div>
           </div>
 
@@ -243,15 +257,15 @@ export function Navigation({ user }: NavigationProps) {
           <div className="relative" ref={avatarDropdownRef}>
             <Button
               variant="ghost"
-              className="relative h-10 w-10 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 hover:bg-accent"
+              className="relative h-10 w-10 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all duration-300 hover:scale-110 hover:ring-2 hover:ring-primary/20 hover:bg-accent"
               onClick={toggleAvatarDropdown}
             >
-              <Avatar className="h-10 w-10 border-2 border-border">
+              <Avatar className="h-10 w-10 border-2 border-border transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10">
                 <AvatarImage
                   src={user?.avatar_url || "/placeholder.svg?height=40&width=40&query=user avatar"}
                   alt={displayName}
                 />
-                <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
+                <AvatarFallback className="bg-primary text-primary-foreground font-semibold transition-all duration-300 hover:bg-primary/90">
                   {userInitials}
                 </AvatarFallback>
               </Avatar>
@@ -262,7 +276,7 @@ export function Navigation({ user }: NavigationProps) {
                 <div className="fixed inset-0 z-40" onClick={() => setIsAvatarDropdownOpen(false)} />
 
                 <div
-                  className="fixed w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50"
+                  className="fixed w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 animate-in fade-in-0 zoom-in-95 duration-200"
                   style={{
                     top: dropdownPosition.top,
                     bottom: dropdownPosition.bottom,
@@ -288,18 +302,18 @@ export function Navigation({ user }: NavigationProps) {
                     <Link
                       href="/profile"
                       onClick={() => handleDropdownItemClick(() => {})}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-700 hover:translate-x-1"
                     >
-                      <User className="h-4 w-4" />
+                      <User className="h-4 w-4 transition-transform duration-200 group-hover:scale-110" />
                       Profile
                     </Link>
 
                     <Link
                       href="/settings"
                       onClick={() => handleDropdownItemClick(() => {})}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-700 hover:translate-x-1"
                     >
-                      <Settings className="h-4 w-4" />
+                      <Settings className="h-4 w-4 transition-transform duration-200 group-hover:rotate-90" />
                       Settings
                     </Link>
 
@@ -309,9 +323,9 @@ export function Navigation({ user }: NavigationProps) {
                         <Link
                           href="/admin"
                           onClick={() => handleDropdownItemClick(() => {})}
-                          className="flex w-full items-center gap-2 px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                          className="flex w-full items-center gap-2 px-4 py-2 text-sm text-orange-600 dark:text-orange-400 transition-all duration-200 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:translate-x-1"
                         >
-                          <Shield className="h-4 w-4" />
+                          <Shield className="h-4 w-4 transition-transform duration-200 group-hover:scale-110" />
                           Admin Panel
                         </Link>
                       </>
@@ -321,9 +335,9 @@ export function Navigation({ user }: NavigationProps) {
 
                     <button
                       onClick={() => handleDropdownItemClick(handleSignOut)}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-700 hover:translate-x-1"
                     >
-                      <LogOut className="h-4 w-4" />
+                      <LogOut className="h-4 w-4 transition-transform duration-200 group-hover:-translate-x-1" />
                       Sign out
                     </button>
                   </div>
@@ -336,9 +350,9 @@ export function Navigation({ user }: NavigationProps) {
             variant="outline"
             size="sm"
             onClick={handleSignOut}
-            className="hidden lg:flex items-center gap-2 bg-transparent"
+            className="hidden lg:flex items-center gap-2 bg-transparent transition-all duration-300 hover:scale-105 hover:shadow-md hover:bg-red-50 hover:border-red-200 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:border-red-800 dark:hover:text-red-400"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-4 w-4 transition-transform duration-300 group-hover:-translate-x-1" />
             Sign Out
           </Button>
 

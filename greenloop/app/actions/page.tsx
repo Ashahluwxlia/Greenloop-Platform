@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { InteractiveSearch } from "@/components/admin/interactive-search"
 import { UserActionSubmissionModal } from "@/components/user-action-submission-modal"
+import { NatureBackground } from "@/components/ui/nature-background"
 import {
   Target,
   Car,
@@ -245,13 +246,14 @@ export default function ActionsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 relative">
+        <NatureBackground className="fixed inset-0 z-0" />
         <Navigation user={userProfile} />
-        <main className="container mx-auto px-4 py-8">
+        <main className="relative z-10 w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-8">
           <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-              <p className="mt-2 text-muted-foreground">Loading actions...</p>
+            <div className="text-center animate-organic-slide-up">
+              <div className="animate-nature-pulse rounded-full h-12 w-12 border-4 border-primary/30 border-t-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">🌱 Loading sustainability actions...</p>
             </div>
           </div>
         </main>
@@ -260,42 +262,53 @@ export default function ActionsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 relative">
+      <NatureBackground className="fixed inset-0 z-0" />
       <Navigation user={userProfile} />
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="relative z-10 w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-8">
         <div className="space-y-8">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
-                <Target className="h-8 w-8 text-primary" />
-                Sustainability Actions
-              </h1>
-              <p className="text-muted-foreground text-balance">
-                Choose from our library of sustainability actions to make a positive environmental impact and earn
-                points.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <UserActionSubmissionModal onSubmissionSuccess={handleSubmissionSuccess} />
-              {userProfile?.is_admin && (
-                <Button asChild>
-                  <Link href="/admin/actions/create">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Action
-                  </Link>
-                </Button>
-              )}
+          <div className="space-y-4 animate-organic-slide-up">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="animate-leaf-sway">
+                  <div className="p-3 bg-gradient-to-br from-primary to-accent rounded-full leaf-shadow">
+                    <Target className="h-8 w-8 text-white" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <h1 className="text-4xl font-bold text-foreground text-balance flex items-center gap-3">
+                    🌍 Sustainability Actions
+                  </h1>
+                  <p className="text-muted-foreground text-balance text-lg">
+                    Choose from our library of eco-friendly actions to nurture our planet and earn rewards. Every small
+                    step creates ripples of positive change! 🌱
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <UserActionSubmissionModal onSubmissionSuccess={handleSubmissionSuccess} />
+                {userProfile?.is_admin && (
+                  <Button asChild className="hover-lift leaf-shadow">
+                    <Link href="/admin/actions/create">
+                      <Plus className="h-4 w-4 mr-2" />🌿 Create Action
+                    </Link>
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Search and Filters */}
-          <Card>
+          <Card className="organic-card leaf-shadow hover-lift animate-organic-slide-up bg-gradient-to-br from-primary/5 via-primary/3 to-transparent border-primary/20">
             <CardHeader>
-              <CardTitle>Search & Filter Actions</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <div className="p-2 bg-primary/10 rounded-full animate-nature-pulse">
+                  <Target className="h-5 w-5 text-primary" />
+                </div>
+                🔍 Discover Your Perfect Action
+              </CardTitle>
               <CardDescription>
-                Find actions by title, description, category, difficulty, points, or CO₂ impact
+                Find actions by title, description, category, difficulty, points, or environmental impact
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -327,55 +340,59 @@ export default function ActionsPage() {
                     values: ["0-1", "1-5", "5-10", "10-25", "25+"],
                   },
                 ]}
-                placeholder="Search actions by title, description, or category..."
+                placeholder="🌱 Search actions by title, description, or category..."
               />
             </CardContent>
           </Card>
 
-          {/* Categories Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList
-              className={`grid w-full ${availableCategories.length <= 4 ? `grid-cols-${Math.min(availableCategories.length + 2, 6)}` : "grid-cols-6"}`}
+              className={`grid w-full ${availableCategories.length <= 4 ? `grid-cols-${Math.min(availableCategories.length + 2, 6)}` : "grid-cols-6"} organic-card leaf-shadow`}
             >
-              <TabsTrigger value="all">All Actions</TabsTrigger>
-              <TabsTrigger value="personal">
-                <User className="h-4 w-4 mr-1" />
-                Personal
+              <TabsTrigger value="all" className="hover-lift">
+                🌍 All Actions
+              </TabsTrigger>
+              <TabsTrigger value="personal" className="hover-lift">
+                <User className="h-4 w-4 mr-1" />🌱 Personal
               </TabsTrigger>
               {availableCategories.slice(0, 4).map((category) => (
-                <TabsTrigger key={category.id} value={category.id}>
+                <TabsTrigger key={category.id} value={category.id} className="hover-lift">
                   {category.name}
                 </TabsTrigger>
               ))}
             </TabsList>
 
             <TabsContent value="personal" className="space-y-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between animate-organic-slide-up">
                 <p className="text-sm text-muted-foreground">
-                  Showing {personalActions.length} personal action{personalActions.length !== 1 ? "s" : ""}
+                  🌿 Showing {personalActions.length} personal action{personalActions.length !== 1 ? "s" : ""}
                 </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {personalActions.map((action) => {
+                {personalActions.map((action, index) => {
                   const IconComponent =
                     categoryIcons[action.action_categories?.name as keyof typeof categoryIcons] || Leaf
 
                   return (
-                    <Card key={action.id} className="relative">
+                    <Card
+                      key={action.id}
+                      className="relative organic-card leaf-shadow hover-lift animate-organic-slide-up"
+                      style={{ animationDelay: `${index * 0.1}s` }}
+                    >
                       <div className="absolute top-3 right-3">{getStatusBadge(action)}</div>
 
                       <CardHeader className="pb-3">
                         <div className="flex items-start gap-3">
                           <div
-                            className="p-2 rounded-lg"
+                            className="p-2 rounded-lg animate-leaf-sway"
                             style={{ backgroundColor: `${action.action_categories?.color}20` }}
                           >
                             <IconComponent className="h-5 w-5" style={{ color: action.action_categories?.color }} />
                           </div>
                           <div className="flex-1">
                             <CardTitle className="text-lg leading-tight pr-20">{action.title}</CardTitle>
-                            <Badge variant="outline" className="mt-1 text-xs">
+                            <Badge variant="outline" className="mt-1 text-xs leaf-shadow">
                               {action.action_categories?.name}
                             </Badge>
                           </div>
@@ -386,9 +403,9 @@ export default function ActionsPage() {
                         <CardDescription className="text-sm leading-relaxed">{action.description}</CardDescription>
 
                         {action.rejection_reason && (
-                          <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                          <div className="p-3 bg-red-50 border border-red-200 rounded-lg organic-card">
                             <p className="text-sm text-red-800">
-                              <strong>Rejection Reason:</strong> {action.rejection_reason}
+                              <strong>🚫 Rejection Reason:</strong> {action.rejection_reason}
                             </p>
                           </div>
                         )}
@@ -397,11 +414,11 @@ export default function ActionsPage() {
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-4">
                               <div className="flex items-center gap-1">
-                                <Award className="h-4 w-4 text-primary" />
+                                <Award className="h-4 w-4 text-primary animate-nature-pulse" />
                                 <span className="font-medium text-primary">+{action.points_value} pts</span>
                               </div>
                               <div className="flex items-center gap-1">
-                                <Leaf className="h-4 w-4 text-accent" />
+                                <Leaf className="h-4 w-4 text-accent animate-leaf-sway" />
                                 <span className="text-accent">{action.co2_impact}kg CO₂</span>
                               </div>
                             </div>
@@ -409,8 +426,8 @@ export default function ActionsPage() {
                         )}
 
                         {action.is_active && (
-                          <Button className="w-full" asChild>
-                            <Link href={`/actions/log/${action.id}`}>Log Action</Link>
+                          <Button className="w-full hover-lift leaf-shadow" asChild>
+                            <Link href={`/actions/log/${action.id}`}>🌱 Log Action</Link>
                           </Button>
                         )}
                       </CardContent>
@@ -420,11 +437,13 @@ export default function ActionsPage() {
               </div>
 
               {personalActions.length === 0 && (
-                <div className="text-center py-12">
-                  <User className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-muted-foreground mb-2">No personal actions yet</h3>
+                <div className="text-center py-12 animate-organic-slide-up">
+                  <div className="animate-leaf-sway mb-4">
+                    <User className="h-16 w-16 text-muted-foreground mx-auto" />
+                  </div>
+                  <h3 className="text-lg font-medium text-muted-foreground mb-2">🌱 No personal actions yet</h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Submit your first sustainability action for admin review.
+                    Submit your first sustainability action for admin review and start your eco-journey!
                   </p>
                   <UserActionSubmissionModal onSubmissionSuccess={handleSubmissionSuccess} />
                 </div>
@@ -434,26 +453,33 @@ export default function ActionsPage() {
             <TabsContent value={activeTab} className="space-y-6">
               {activeTab !== "personal" && (
                 <>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between animate-organic-slide-up">
                     <p className="text-sm text-muted-foreground">
-                      Showing {getActionsForTab(activeTab).length} of {actions.length} actions
+                      🌿 Showing {getActionsForTab(activeTab).length} of {actions.length} actions
                       {activeTab !== "all" &&
                         ` in ${availableCategories.find((c) => c.id === activeTab)?.name || "this category"}`}
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {getActionsForTab(activeTab).map((action) => {
+                    {getActionsForTab(activeTab).map((action, index) => {
                       const IconComponent =
                         categoryIcons[action.action_categories?.name as keyof typeof categoryIcons] || Leaf
                       const isCompleted = completedActionIds.has(action.id)
 
                       return (
-                        <Card key={action.id} className={`relative ${isCompleted ? "bg-muted/50" : ""}`}>
+                        <Card
+                          key={action.id}
+                          className={`relative organic-card leaf-shadow hover-lift animate-organic-slide-up ${isCompleted ? "bg-gradient-to-br from-green-50 to-green-100/50" : "bg-gradient-to-br from-background to-primary/5"}`}
+                          style={{ animationDelay: `${index * 0.1}s` }}
+                        >
                           {isCompleted && (
                             <div className="absolute top-3 right-3">
-                              <Badge variant="secondary" className="bg-green-100 text-green-800">
-                                Completed
+                              <Badge
+                                variant="secondary"
+                                className="bg-green-100 text-green-800 leaf-shadow animate-nature-pulse"
+                              >
+                                ✅ Completed
                               </Badge>
                             </div>
                           )}
@@ -461,14 +487,14 @@ export default function ActionsPage() {
                           <CardHeader className="pb-3">
                             <div className="flex items-start gap-3">
                               <div
-                                className="p-2 rounded-lg"
+                                className="p-2 rounded-lg animate-leaf-sway"
                                 style={{ backgroundColor: `${action.action_categories?.color}20` }}
                               >
                                 <IconComponent className="h-5 w-5" style={{ color: action.action_categories?.color }} />
                               </div>
                               <div className="flex-1">
                                 <CardTitle className="text-lg leading-tight">{action.title}</CardTitle>
-                                <Badge variant="outline" className="mt-1 text-xs">
+                                <Badge variant="outline" className="mt-1 text-xs leaf-shadow">
                                   {action.action_categories?.name}
                                 </Badge>
                               </div>
@@ -481,17 +507,17 @@ export default function ActionsPage() {
                             <div className="flex items-center justify-between text-sm">
                               <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-1">
-                                  <Award className="h-4 w-4 text-primary" />
+                                  <Award className="h-4 w-4 text-primary animate-nature-pulse" />
                                   <span className="font-medium text-primary">+{action.points_value} pts</span>
                                 </div>
                                 <div className="flex items-center gap-1">
-                                  <Leaf className="h-4 w-4 text-accent" />
+                                  <Leaf className="h-4 w-4 text-accent animate-leaf-sway" />
                                   <span className="text-accent">{action.co2_impact}kg CO₂</span>
                                 </div>
                               </div>
 
                               <Badge
-                                className={`text-xs ${difficultyColors[action.difficulty_level as keyof typeof difficultyColors]}`}
+                                className={`text-xs ${difficultyColors[action.difficulty_level as keyof typeof difficultyColors]} leaf-shadow`}
                                 variant="secondary"
                               >
                                 Level {action.difficulty_level}
@@ -501,12 +527,18 @@ export default function ActionsPage() {
                             {action.estimated_time_minutes && (
                               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                                 <Clock className="h-3 w-3" />
-                                <span>~{action.estimated_time_minutes} minutes</span>
+                                <span>⏱️ ~{action.estimated_time_minutes} minutes</span>
                               </div>
                             )}
 
-                            <Button className="w-full" variant={isCompleted ? "outline" : "default"} asChild>
-                              <Link href={`/actions/log/${action.id}`}>{isCompleted ? "Log Again" : "Log Action"}</Link>
+                            <Button
+                              className={`w-full hover-lift leaf-shadow ${isCompleted ? "bg-green-600 hover:bg-green-700" : ""}`}
+                              variant={isCompleted ? "default" : "default"}
+                              asChild
+                            >
+                              <Link href={`/actions/log/${action.id}`}>
+                                {isCompleted ? "🔄 Log Again" : "🌱 Log Action"}
+                              </Link>
                             </Button>
                           </CardContent>
                         </Card>
@@ -515,14 +547,20 @@ export default function ActionsPage() {
                   </div>
 
                   {getActionsForTab(activeTab).length === 0 && (
-                    <div className="text-center py-12">
-                      <Target className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="text-lg font-medium text-muted-foreground mb-2">No actions found</h3>
+                    <div className="text-center py-12 animate-organic-slide-up">
+                      <div className="animate-leaf-sway mb-4">
+                        <Target className="h-16 w-16 text-muted-foreground mx-auto" />
+                      </div>
+                      <h3 className="text-lg font-medium text-muted-foreground mb-2">🌱 No actions found</h3>
                       <p className="text-sm text-muted-foreground mb-4">
-                        Try adjusting your search terms or filters to find more actions.
+                        Try adjusting your search terms or filters to discover more eco-friendly actions.
                       </p>
-                      <Button variant="outline" onClick={() => window.location.reload()}>
-                        Clear Filters
+                      <Button
+                        variant="outline"
+                        onClick={() => window.location.reload()}
+                        className="hover-lift leaf-shadow"
+                      >
+                        🔄 Clear Filters
                       </Button>
                     </div>
                   )}
