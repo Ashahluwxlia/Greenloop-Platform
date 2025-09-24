@@ -3,12 +3,13 @@ import { createClient } from "@/lib/supabase/server"
 import { Navigation } from "@/components/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import { MotivationalQuote } from "@/components/ui/motivational-quote"
+import { NatureBackground } from "@/components/ui/nature-background"
+import { EcoMetricCard } from "@/components/ui/eco-metric-card"
 import {
   Leaf,
   Award,
-  Target,
   Calendar,
   Zap,
   Droplets,
@@ -129,31 +130,49 @@ export default async function DashboardPage() {
     .limit(2)
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 relative">
+      <NatureBackground className="fixed inset-0 z-0" />
       <Navigation user={userProfile} />
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="relative z-10 w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-8">
         <div className="space-y-8">
-          {/* Welcome Section */}
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold text-foreground">Welcome back, {userProfile?.first_name}!</h1>
-            <p className="text-muted-foreground text-balance">
-              Ready to make a positive impact today? Let's continue your sustainability journey.
-            </p>
+          <div className="space-y-4 animate-organic-slide-up max-w-4xl">
+            <div className="flex items-center gap-3">
+              <div className="animate-leaf-sway">
+                <div className="p-3 bg-gradient-to-br from-primary to-accent rounded-full leaf-shadow">
+                  <Leaf className="h-8 w-8 text-white" />
+                </div>
+              </div>
+              <div>
+                <h1 className="text-4xl font-bold text-foreground text-balance">
+                  Welcome back, {userProfile?.first_name}! 🌱
+                </h1>
+                <p className="text-muted-foreground text-balance text-lg">
+                  Ready to nurture our planet today? Let's grow your sustainability impact together.
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <MotivationalQuote userPoints={userProfile?.points} />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {recentAnnouncements && recentAnnouncements.length > 0 && (
-              <Card className="bg-gradient-to-r from-primary/10 to-accent/10 border-primary/20">
+              <Card className="organic-card leaf-shadow hover-lift animate-organic-slide-up bg-gradient-to-br from-primary/5 via-primary/3 to-transparent border-primary/20">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Megaphone className="h-5 w-5 text-primary" />
-                    Latest Announcements
+                    <div className="p-2 bg-primary/10 rounded-full animate-nature-pulse">
+                      <Megaphone className="h-5 w-5 text-primary" />
+                    </div>
+                    🌍 Latest Announcements
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {recentAnnouncements.map((announcement) => (
-                    <div key={announcement.id} className="flex items-start gap-3 p-3 bg-background/50 rounded-lg">
+                    <div
+                      key={announcement.id}
+                      className="flex items-start gap-3 p-4 organic-card backdrop-blur-sm hover-lift"
+                    >
                       <div className="p-1.5 bg-primary/10 rounded-full flex-shrink-0">
                         <Globe className="h-4 w-4 text-primary" />
                       </div>
@@ -166,24 +185,29 @@ export default async function DashboardPage() {
                       </div>
                     </div>
                   ))}
-                  <Button variant="outline" size="sm" className="w-full bg-transparent" asChild>
-                    <Link href="/announcements">View All Announcements</Link>
+                  <Button variant="outline" size="sm" className="w-full bg-transparent hover-lift leaf-shadow" asChild>
+                    <Link href="/announcements">🌿 View All Announcements</Link>
                   </Button>
                 </CardContent>
               </Card>
             )}
 
             {recentEducationalContent && recentEducationalContent.length > 0 && (
-              <Card className="bg-gradient-to-r from-accent/10 to-secondary/10 border-accent/20">
+              <Card className="organic-card leaf-shadow hover-lift animate-organic-slide-up bg-gradient-to-br from-accent/5 via-accent/3 to-transparent border-accent/20">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <GraduationCap className="h-5 w-5 text-accent" />
-                    Latest Educational Content
+                    <div className="p-2 bg-accent/10 rounded-full animate-nature-pulse">
+                      <GraduationCap className="h-5 w-5 text-accent" />
+                    </div>
+                    📚 Nature's Wisdom
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {recentEducationalContent.map((content) => (
-                    <div key={content.id} className="flex items-start gap-3 p-3 bg-background/50 rounded-lg">
+                    <div
+                      key={content.id}
+                      className="flex items-start gap-3 p-4 organic-card backdrop-blur-sm hover-lift"
+                    >
                       <div className="p-1.5 bg-accent/10 rounded-full flex-shrink-0">
                         <BookOpen className="h-4 w-4 text-accent" />
                       </div>
@@ -191,7 +215,7 @@ export default async function DashboardPage() {
                         <h4 className="font-medium text-sm">{content.title}</h4>
                         <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{content.content}</p>
                         <div className="flex items-center gap-2 mt-2">
-                          <Badge variant="outline" className="text-xs">
+                          <Badge variant="outline" className="text-xs leaf-shadow">
                             {content.category}
                           </Badge>
                           <p className="text-xs text-muted-foreground">
@@ -201,84 +225,64 @@ export default async function DashboardPage() {
                       </div>
                     </div>
                   ))}
-                  <Button variant="outline" size="sm" className="w-full bg-transparent" asChild>
-                    <Link href="/education">View All Educational Content</Link>
+                  <Button variant="outline" size="sm" className="w-full bg-transparent hover-lift leaf-shadow" asChild>
+                    <Link href="/education">🌱 Explore All Content</Link>
                   </Button>
                 </CardContent>
               </Card>
             )}
           </div>
 
-          {/* Stats Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Points</CardTitle>
-                <Award className="h-4 w-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-primary">{userProfile?.points || 0}</div>
-                <div className="flex items-center gap-2 mt-2">
-                  <Progress value={levelProgress} className="flex-1 h-2" />
-                  <span className="text-xs text-muted-foreground">Level {userProfile?.level || 1}</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {pointsToNextLevel > 0 ? `${pointsToNextLevel} points to next level` : "Max level reached!"}
-                </p>
-              </CardContent>
-            </Card>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+            <EcoMetricCard
+              title="🌟 Total Points"
+              value={userProfile?.points || 0}
+              icon="award"
+              description={pointsToNextLevel > 0 ? `${pointsToNextLevel} to next level` : "Max level reached!"}
+              trend="up"
+              className="sm:col-span-2"
+            />
 
-            <Card className="bg-gradient-to-br from-accent/10 to-accent/5 border-accent/20">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">CO₂ Saved</CardTitle>
-                <Leaf className="h-4 w-4 text-accent" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-accent">
-                  {userProfile?.total_co2_saved || 0}
-                  <span className="text-sm font-normal ml-1">kg</span>
-                </div>
-                <p className="text-xs text-muted-foreground">Environmental impact</p>
-              </CardContent>
-            </Card>
+            <EcoMetricCard
+              title="🌍 CO₂ Saved"
+              value={userProfile?.total_co2_saved || 0}
+              suffix=" kg"
+              icon="leaf"
+              description="Environmental impact"
+              trend="up"
+            />
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Actions This Week</CardTitle>
-                <Target className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{recentActions?.length || 0}</div>
-                <p className="text-xs text-muted-foreground">Keep up the great work!</p>
-              </CardContent>
-            </Card>
+            <EcoMetricCard
+              title="⚡ Weekly Actions"
+              value={recentActions?.length || 0}
+              icon="target"
+              description="Keep growing!"
+              trend="up"
+            />
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Badges Earned</CardTitle>
-                <Award className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{userBadges?.length || 0}</div>
-                <p className="text-xs text-muted-foreground">Achievements unlocked</p>
-              </CardContent>
-            </Card>
+            <EcoMetricCard
+              title="🏆 Badges Earned"
+              value={userBadges?.length || 0}
+              icon="star"
+              description="Achievements unlocked"
+              trend="neutral"
+            />
           </div>
 
-          {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Quick Actions */}
-            <Card className="lg:col-span-2">
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+            <Card className="xl:col-span-3 organic-card leaf-shadow hover-lift animate-organic-slide-up">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
-                      <Zap className="h-5 w-5 text-primary" />
-                      Quick Actions
+                      <div className="p-2 bg-primary/10 rounded-full animate-nature-pulse">
+                        <Zap className="h-5 w-5 text-primary" />
+                      </div>
+                      🚀 Quick Actions
                     </CardTitle>
                     <CardDescription>Log your sustainability actions and earn points</CardDescription>
                   </div>
-                  <Button asChild size="sm">
+                  <Button asChild size="sm" className="hover-lift leaf-shadow">
                     <Link href="/actions">
                       <Plus className="h-4 w-4 mr-2" />
                       View All
@@ -288,15 +292,18 @@ export default async function DashboardPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {availableActions?.map((action) => (
-                  <div key={action.id} className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                  <div
+                    key={action.id}
+                    className="flex items-center justify-between p-4 organic-card hover-lift border border-border/50"
+                  >
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-primary/10 rounded-lg">
-                        {action.action_categories?.icon === "🚲" && <Car className="h-4 w-4 text-primary" />}
-                        {action.action_categories?.icon === "⚡" && <Zap className="h-4 w-4 text-primary" />}
-                        {action.action_categories?.icon === "♻️" && <Recycle className="h-4 w-4 text-primary" />}
-                        {action.action_categories?.icon === "💧" && <Droplets className="h-4 w-4 text-primary" />}
-                        {!["🚲", "⚡", "♻️", "💧"].includes(action.action_categories?.icon || "") && (
-                          <Leaf className="h-4 w-4 text-primary" />
+                      <div className="p-3 bg-primary/10 rounded-lg animate-leaf-sway">
+                        {action.action_categories?.icon === "🚲" && <Car className="h-5 w-5 text-primary" />}
+                        {action.action_categories?.icon === "⚡" && <Zap className="h-5 w-5 text-primary" />}
+                        {action.action_categories?.icon === "♻️" && <Recycle className="h-5 w-5 text-primary" />}
+                        {action.action_categories?.icon === "💧" && <Droplets className="h-5 w-5 text-primary" />}
+                        {![`"🚲"`, `"⚡"`, `"♻️"`, `"💧"`].includes(action.action_categories?.icon || `"\"`) && (
+                          <Leaf className="h-5 w-5 text-primary" />
                         )}
                       </div>
                       <div>
@@ -309,8 +316,8 @@ export default async function DashboardPage() {
                         <div className="text-sm font-medium text-primary">+{action.points_value} pts</div>
                         <div className="text-xs text-muted-foreground">{action.co2_impact}kg CO₂</div>
                       </div>
-                      <Button size="sm" asChild>
-                        <Link href={`/actions/log/${action.id}`}>Log</Link>
+                      <Button size="sm" className="hover-lift leaf-shadow" asChild>
+                        <Link href={`/actions/log/${action.id}`}>🌱 Log</Link>
                       </Button>
                     </div>
                   </div>
@@ -318,25 +325,25 @@ export default async function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Recent Activity & Badges */}
-            <div className="space-y-6">
-              {/* Recent Badges */}
-              <Card>
+            <div className="xl:col-span-1 space-y-6">
+              <Card className="organic-card leaf-shadow hover-lift animate-organic-slide-up">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Award className="h-5 w-5 text-primary" />
-                    Recent Badges
+                    <div className="p-2 bg-chart-3/10 rounded-full animate-nature-pulse">
+                      <Award className="h-5 w-5 text-chart-3" />
+                    </div>
+                    🏆 Recent Badges
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {userBadges?.length ? (
                     userBadges.map((userBadge) => (
-                      <div key={userBadge.id} className="flex items-center gap-3">
+                      <div key={userBadge.id} className="flex items-center gap-3 p-3 organic-card hover-lift">
                         <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                          className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold animate-nature-pulse"
                           style={{ backgroundColor: userBadge.badges?.badge_color || "#10B981" }}
                         >
-                          <Award className="h-5 w-5" />
+                          <Award className="h-6 w-6" />
                         </div>
                         <div>
                           <p className="font-medium text-sm">{userBadge.badges?.name}</p>
@@ -348,42 +355,43 @@ export default async function DashboardPage() {
                     ))
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      No badges earned yet. Complete actions to unlock achievements!
+                      🌱 No badges earned yet. Complete actions to unlock achievements!
                     </p>
                   )}
-                  <Button variant="outline" size="sm" className="w-full bg-transparent" asChild>
-                    <Link href="/badges">View All Badges</Link>
+                  <Button variant="outline" size="sm" className="w-full bg-transparent hover-lift leaf-shadow" asChild>
+                    <Link href="/badges">🌟 View All Badges</Link>
                   </Button>
                 </CardContent>
               </Card>
 
-              {/* Recent Actions */}
-              <Card>
+              <Card className="organic-card leaf-shadow hover-lift animate-organic-slide-up">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-primary" />
-                    Recent Activity
+                    <div className="p-2 bg-chart-2/10 rounded-full animate-nature-pulse">
+                      <Calendar className="h-5 w-5 text-chart-2" />
+                    </div>
+                    📅 Recent Activity
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {challengeActivities?.map((activity) => (
                     <div
                       key={`challenge-${activity.id}`}
-                      className="flex items-center justify-between border-l-2 border-primary pl-3"
+                      className="flex items-center justify-between border-l-2 border-primary pl-3 hover-lift"
                     >
                       <div>
-                        <p className="font-medium text-sm">Challenge Progress</p>
+                        <p className="font-medium text-sm">🎯 Challenge Progress</p>
                         <p className="text-xs text-muted-foreground">{activity.challenge_title}</p>
                         <p className="text-xs text-primary">{activity.activity_description}</p>
                       </div>
                       <div className="text-right">
                         {activity.activity_type === "milestone_reached" && (
-                          <Badge variant="secondary" className="text-xs">
+                          <Badge variant="secondary" className="text-xs leaf-shadow">
                             🎯 Milestone
                           </Badge>
                         )}
                         {activity.activity_type === "challenge_completed" && (
-                          <Badge variant="default" className="text-xs bg-green-600">
+                          <Badge variant="default" className="text-xs bg-green-600 leaf-shadow">
                             🏆 Completed
                           </Badge>
                         )}
@@ -396,21 +404,21 @@ export default async function DashboardPage() {
 
                   {recentActions?.length ? (
                     recentActions.map((action) => (
-                      <div key={action.id} className="flex items-center justify-between">
+                      <div key={action.id} className="flex items-center justify-between p-2 hover-lift rounded">
                         <div>
-                          <p className="font-medium text-sm">{action.sustainability_actions?.title}</p>
+                          <p className="font-medium text-sm">🌿 {action.sustainability_actions?.title}</p>
                           <p className="text-xs text-muted-foreground">
                             {new Date(action.completed_at).toLocaleDateString()}
                           </p>
                         </div>
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="text-xs animate-nature-pulse leaf-shadow">
                           +{action.points_earned} pts
                         </Badge>
                       </div>
                     ))
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      No recent actions. Start logging your sustainability efforts!
+                      🌱 No recent actions. Start logging your sustainability efforts!
                     </p>
                   )}
                 </CardContent>

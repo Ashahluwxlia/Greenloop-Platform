@@ -9,6 +9,7 @@ import { Megaphone, Calendar, Globe, Plus } from "lucide-react"
 import { ContentCrudModal } from "@/components/admin/content-crud-modal"
 import { useToast } from "@/hooks/use-toast"
 import { Navigation } from "@/components/navigation"
+import { NatureBackground } from "@/components/ui/nature-background"
 
 interface Announcement {
   id: string
@@ -135,88 +136,115 @@ export default function AnnouncementsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 relative">
+      <NatureBackground className="fixed inset-0 z-0" />
       <Navigation user={userProfile} />
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-full">
-                <Megaphone className="h-6 w-6 text-primary" />
-              </div>
-              <h1 className="text-3xl font-bold text-foreground">Announcements</h1>
-            </div>
-            {isAdmin && (
-              <Button onClick={handleCreateContent}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Announcement
-              </Button>
-            )}
-          </div>
-          <p className="text-muted-foreground">
-            Stay updated with the latest news and important information from GreenLoop.
-          </p>
-        </div>
 
-        <div className="space-y-6">
-          {announcements.length > 0 ? (
-            announcements.map((announcement) => (
-              <Card key={announcement.id} className="hover:shadow-md transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-xl mb-2">{announcement.title}</CardTitle>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-4 w-4" />
-                          {formatDate(announcement.created_at)}
+      <main className="relative z-10 w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-8">
+        <div className="space-y-8">
+          <div className="space-y-4 animate-organic-slide-up">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="animate-leaf-sway">
+                  <div className="p-3 bg-gradient-to-br from-primary to-accent rounded-full leaf-shadow">
+                    <Megaphone className="h-8 w-8 text-white" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <h1 className="text-4xl font-bold text-foreground text-balance flex items-center gap-3">
+                    🌍 Community Announcements
+                  </h1>
+                  <p className="text-muted-foreground text-balance text-lg">
+                    Stay rooted with the latest news and important updates from our growing GreenLoop community. Every
+                    announcement nurtures our collective growth! 🌱
+                  </p>
+                </div>
+              </div>
+              {isAdmin && (
+                <Button onClick={handleCreateContent} className="hover-lift leaf-shadow">
+                  <Plus className="h-4 w-4 mr-2" />🌿 Plant New Announcement
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {announcements.length > 0 ? (
+              announcements.map((announcement, index) => (
+                <Card
+                  key={announcement.id}
+                  className="organic-card leaf-shadow hover-lift animate-organic-slide-up bg-gradient-to-br from-background to-primary/5"
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  <CardHeader className="bg-gradient-to-r from-primary/5 via-primary/3 to-transparent border-b border-primary/20">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-xl mb-3 text-foreground group-hover:text-primary transition-colors duration-300 text-balance">
+                          {announcement.title}
+                        </CardTitle>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                          <div className="flex items-center gap-2 bg-background/60 px-3 py-1 rounded-full leaf-shadow">
+                            <Calendar className="h-4 w-4" />
+                            {formatDate(announcement.created_at)}
+                          </div>
+                          <Badge
+                            className={`${getCategoryColor(announcement.category)} rounded-full px-3 py-1 font-medium leaf-shadow`}
+                          >
+                            {announcement.category}
+                          </Badge>
                         </div>
-                        <Badge className={getCategoryColor(announcement.category)}>{announcement.category}</Badge>
+                      </div>
+                      <div className="p-3 bg-primary/10 rounded-full animate-nature-pulse">
+                        <Globe className="h-5 w-5 text-primary" />
                       </div>
                     </div>
-                    <div className="p-2 bg-primary/10 rounded-full">
-                      <Globe className="h-5 w-5 text-primary" />
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <div className="prose prose-sm max-w-none">
+                      <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap text-pretty">
+                        {announcement.content}
+                      </p>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="prose prose-sm max-w-none">
-                    <p className="text-foreground leading-relaxed whitespace-pre-wrap">{announcement.content}</p>
-                  </div>
 
-                  {announcement.tags && announcement.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-4">
-                      {announcement.tags.map((tag, index) => (
-                        <Badge key={index} variant="outline" className="text-xs">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
+                    {announcement.tags && announcement.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-6">
+                        {announcement.tags.map((tag, index) => (
+                          <Badge
+                            key={index}
+                            variant="outline"
+                            className="text-xs bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 transition-colors duration-200 rounded-full px-3 py-1 leaf-shadow"
+                          >
+                            🏷️ {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <div className="text-center py-16 animate-organic-slide-up">
+                <div className="animate-leaf-sway mb-6">
+                  <div className="p-6 bg-primary/10 rounded-full w-24 h-24 mx-auto flex items-center justify-center leaf-shadow">
+                    <Megaphone className="h-12 w-12 text-primary" />
+                  </div>
+                </div>
+                <h3 className="text-xl font-semibold mb-3 text-foreground">🌱 No Announcements Yet</h3>
+                <p className="text-muted-foreground mb-6 text-balance max-w-md mx-auto">
+                  Our community garden of announcements is still growing! Check back soon for fresh updates and news. 🌿
+                </p>
+                <div className="flex gap-3 justify-center">
+                  {isAdmin && (
+                    <Button onClick={handleCreateContent} className="hover-lift leaf-shadow">
+                      <Plus className="h-4 w-4 mr-2" />🌱 Plant First Announcement
+                    </Button>
                   )}
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <div className="text-center py-12">
-              <div className="p-4 bg-muted/50 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                <Megaphone className="h-8 w-8 text-muted-foreground" />
+                </div>
               </div>
-              <h3 className="text-lg font-semibold mb-2">No Announcements Yet</h3>
-              <p className="text-muted-foreground mb-4">
-                There are currently no announcements to display. Check back later for updates!
-              </p>
-              <div className="flex gap-2 justify-center">
-                {isAdmin && (
-                  <Button onClick={handleCreateContent}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Announcement
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      </main>
 
       {isAdmin && (
         <ContentCrudModal

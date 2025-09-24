@@ -5,11 +5,12 @@ import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { BookOpen, Calendar, GraduationCap, Filter, Plus } from "lucide-react"
+import { BookOpen, Calendar, GraduationCap, Filter, Plus, Leaf } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ContentCrudModal } from "@/components/admin/content-crud-modal"
 import { useToast } from "@/hooks/use-toast"
 import { Navigation } from "@/components/navigation"
+import { NatureBackground } from "@/components/ui/nature-background"
 
 interface EducationalContent {
   id: string
@@ -164,136 +165,184 @@ export default function EducationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 relative">
+      <NatureBackground className="fixed inset-0 z-0" />
       <Navigation user={userProfile} />
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-accent/10 rounded-full">
-                <GraduationCap className="h-6 w-6 text-accent" />
+
+      <main className="relative z-10 w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-8">
+        <div className="space-y-8">
+          <div className="space-y-4 animate-organic-slide-up">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="animate-leaf-sway">
+                  <div className="p-3 bg-gradient-to-br from-primary to-accent rounded-full leaf-shadow">
+                    <GraduationCap className="h-8 w-8 text-white" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <h1 className="text-4xl font-bold text-foreground text-balance flex items-center gap-3">
+                    📚 Educational Garden
+                  </h1>
+                  <p className="text-muted-foreground text-balance text-lg">
+                    Nurture your understanding of sustainability through our curated educational resources. Every lesson
+                    plants seeds of change! 🌿
+                  </p>
+                </div>
               </div>
-              <h1 className="text-3xl font-bold text-foreground">Educational Resources</h1>
+              {isAdmin && (
+                <Button onClick={handleCreateContent} className="hover-lift leaf-shadow">
+                  <Plus className="h-4 w-4 mr-2" />🌿 Grow New Content
+                </Button>
+              )}
             </div>
-            {isAdmin && (
-              <Button onClick={handleCreateContent}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Educational Content
-              </Button>
+          </div>
+
+          {categories.length > 0 && (
+            <Card className="organic-card leaf-shadow hover-lift animate-organic-slide-up bg-gradient-to-br from-primary/5 via-primary/3 to-transparent border-primary/20">
+              <CardHeader>
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-primary/10 rounded-full animate-nature-pulse">
+                    <Filter className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground">🔍 Filter by Ecosystem</h3>
+                    <p className="text-sm text-muted-foreground">Explore content by category</p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                  <SelectTrigger className="w-full organic-card leaf-shadow">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent className="organic-card leaf-shadow">
+                    <SelectItem value="all">🌍 All Categories</SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {getCategoryIcon(category)} {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="space-y-6">
+            {filteredContent.length > 0 ? (
+              filteredContent.map((content, index) => (
+                <Card
+                  key={content.id}
+                  className="organic-card leaf-shadow hover-lift animate-organic-slide-up bg-gradient-to-br from-background to-primary/5"
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  <CardHeader className="bg-gradient-to-r from-primary/5 via-primary/3 to-transparent border-b border-primary/20">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-xl mb-3 flex items-center gap-3 text-foreground group-hover:text-primary transition-colors duration-300 text-balance">
+                          <span className="text-2xl animate-leaf-sway">{getCategoryIcon(content.category)}</span>
+                          {content.title}
+                        </CardTitle>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                          <div className="flex items-center gap-2 bg-background/60 px-3 py-1 rounded-full leaf-shadow">
+                            <Calendar className="h-4 w-4" />
+                            {formatDate(content.created_at)}
+                          </div>
+                          <Badge
+                            className={`${getCategoryColor(content.category)} rounded-full px-3 py-1 font-medium leaf-shadow`}
+                          >
+                            {content.category}
+                          </Badge>
+                          {content.points && content.points > 0 && (
+                            <Badge
+                              variant="secondary"
+                              className="bg-accent/10 text-accent rounded-full px-3 py-1 font-medium leaf-shadow"
+                            >
+                              🌟 {content.points} points
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-primary/10 rounded-full animate-nature-pulse">
+                        <BookOpen className="h-5 w-5 text-primary" />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <div className="prose prose-sm max-w-none">
+                      <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap text-pretty">
+                        {content.content}
+                      </p>
+                    </div>
+
+                    {content.co2_impact && content.co2_impact > 0 && (
+                      <div className="mt-6 p-4 bg-gradient-to-r from-accent/5 to-accent/10 rounded-2xl border border-accent/20 leaf-shadow">
+                        <div className="flex items-center gap-3 text-sm text-accent">
+                          <div className="p-2 bg-accent/10 rounded-full animate-leaf-sway">
+                            <Leaf className="h-4 w-4 text-accent" />
+                          </div>
+                          <div>
+                            <span className="font-semibold">🌱 Environmental Impact:</span>
+                            <span className="ml-2">
+                              Learn how to save {content.co2_impact}kg CO₂ and help our planet breathe!
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {content.tags && content.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-6">
+                        {content.tags.map((tag, index) => (
+                          <Badge
+                            key={index}
+                            variant="outline"
+                            className="text-xs bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 transition-colors duration-200 rounded-full px-3 py-1 leaf-shadow"
+                          >
+                            🏷️ {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <div className="text-center py-16 animate-organic-slide-up">
+                <div className="animate-leaf-sway mb-6">
+                  <div className="p-6 bg-primary/10 rounded-full w-24 h-24 mx-auto flex items-center justify-center leaf-shadow">
+                    <GraduationCap className="h-12 w-12 text-primary" />
+                  </div>
+                </div>
+                <h3 className="text-xl font-semibold mb-3 text-foreground">
+                  {selectedCategory === "all" ? "🌱 Knowledge Garden Growing" : `🔍 No ${selectedCategory} Content Yet`}
+                </h3>
+                <p className="text-muted-foreground mb-6 text-balance max-w-md mx-auto">
+                  {selectedCategory === "all"
+                    ? "Our educational garden is still sprouting! Check back soon for fresh learning resources. 🌿"
+                    : `No educational content found in the ${selectedCategory} ecosystem. Try exploring other categories or check back later! 🌍`}
+                </p>
+                <div className="flex gap-3 justify-center">
+                  {selectedCategory !== "all" && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setSelectedCategory("all")}
+                      className="hover-lift leaf-shadow"
+                    >
+                      🌍 Explore All Content
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button onClick={handleCreateContent} className="hover-lift leaf-shadow">
+                      <Plus className="h-4 w-4 mr-2" />🌱 Plant First Content
+                    </Button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
-          <p className="text-muted-foreground">
-            Learn about sustainability practices and environmental impact through our curated educational content.
-          </p>
         </div>
-
-        {categories.length > 0 && (
-          <div className="mb-6">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Filter by category:</span>
-              </div>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {getCategoryIcon(category)} {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-6">
-          {filteredContent.length > 0 ? (
-            filteredContent.map((content) => (
-              <Card key={content.id} className="hover:shadow-md transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-xl mb-2 flex items-center gap-2">
-                        <span className="text-2xl">{getCategoryIcon(content.category)}</span>
-                        {content.title}
-                      </CardTitle>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-4 w-4" />
-                          {formatDate(content.created_at)}
-                        </div>
-                        <Badge className={getCategoryColor(content.category)}>{content.category}</Badge>
-                        {content.points && content.points > 0 && (
-                          <Badge variant="secondary">{content.points} points</Badge>
-                        )}
-                      </div>
-                    </div>
-                    <div className="p-2 bg-accent/10 rounded-full">
-                      <BookOpen className="h-5 w-5 text-accent" />
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="prose prose-sm max-w-none">
-                    <p className="text-foreground leading-relaxed whitespace-pre-wrap">{content.content}</p>
-                  </div>
-
-                  {content.co2_impact && content.co2_impact > 0 && (
-                    <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                      <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-300">
-                        <span className="font-medium">Environmental Impact:</span>
-                        <span>Learn how to save {content.co2_impact}kg CO₂</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {content.tags && content.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-4">
-                      {content.tags.map((tag, index) => (
-                        <Badge key={index} variant="outline" className="text-xs">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <div className="text-center py-12">
-              <div className="p-4 bg-muted/50 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                <GraduationCap className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold mb-2">
-                {selectedCategory === "all" ? "No Educational Content Yet" : `No ${selectedCategory} Content`}
-              </h3>
-              <p className="text-muted-foreground mb-4">
-                {selectedCategory === "all"
-                  ? "There are currently no educational resources to display. Check back later for new content!"
-                  : `No educational content found for the ${selectedCategory} category. Try selecting a different category.`}
-              </p>
-              <div className="flex gap-2 justify-center">
-                {selectedCategory !== "all" && (
-                  <Button variant="outline" onClick={() => setSelectedCategory("all")}>
-                    View All Content
-                  </Button>
-                )}
-                {isAdmin && (
-                  <Button onClick={handleCreateContent}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Educational Content
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      </main>
 
       {isAdmin && (
         <ContentCrudModal
